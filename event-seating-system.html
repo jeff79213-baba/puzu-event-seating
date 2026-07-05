@@ -595,6 +595,7 @@ function normalizeDiet(v){
 
 function renderList(){
   const main = document.getElementById('main');
+  const s = state.settings;
   const q = state.listSearch.trim().toLowerCase();
   let list = state.attendees.filter(p=> !q || (p.name+(p.org||'')).toLowerCase().includes(q));
   const pageSize = 50;
@@ -638,6 +639,7 @@ function renderList(){
               <td>${editing?`<input class="edit-cell" data-field="staff" placeholder="留空=非工作人員" value="${esc(p.staff)}">`:(p.staff?`<span class="chip" style="background:var(--teal);color:#fff;">${esc(p.staff)}</span>`:'—')}</td>
               ${CATS.map(c=>{
                 if(c.isCourse) return `<td>${p.assign.courseSection!=null ? `<span class="chip" style="background:${getSectionColor(p.assign.courseSection)};color:#fff;">${getSectionLabel(p.assign.courseSection)}-${p.assign.courseSeat}</span>` : `<span class="chip empty">未分配</span>`}</td>`;
+                if(editing) return `<td><input class="edit-cell" data-field="assign_${c.key}" type="number" min="1" max="999" value="${p.assign[c.key]||''}" placeholder="${c.unit}號" style="width:60px;padding:4px 6px;font-size:12px;"></td>`;
                 return `<td>${p.assign[c.key]?`<span class="chip">${c.unit}${p.assign[c.key]}</span>`:`<span class="chip empty">未分配</span>`}</td>`;
               }).join('')}
               <td style="white-space:nowrap;">
@@ -707,6 +709,10 @@ function renderList(){
           else if(field==='name'){ p.name = val||p.name; }
           else if(field==='sponsor'){ p.sponsor = val; }
           else if(field==='staff'){ p.staff = val; }
+          else if(field.startsWith('assign_')){
+            const catKey = field.replace('assign_', '');
+            p.assign[catKey] = val ? parseInt(val) : null;
+          }
         });
         state.editId = null;
         saveAttendees();
