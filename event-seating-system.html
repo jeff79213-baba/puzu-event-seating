@@ -689,17 +689,14 @@ function renderList(){
     downloadCSV('完整名單與分配.csv', rows);
   };
 
-  // Delegated events for edit/delete/cancel
-  document.getElementById('listPanel').onclick = function(e){
-    const btn = e.target.closest('button[data-action]');
-    if(!btn) return;
-    const action = btn.getAttribute('data-action');
-    if(action === 'edit'){
-      const id = btn.getAttribute('data-id');
+  // Direct button binding for edit/delete/cancel
+  main.querySelectorAll('[data-action="edit"]').forEach(btn=>{
+    btn.onclick = function(){
+      const id = this.getAttribute('data-id');
       if(state.editId === id){
         const p = state.attendees.find(a=>a.id===id);
         if(!p) return;
-        const row = btn.closest('tr');
+        const row = this.closest('tr');
         row.querySelectorAll('.edit-cell').forEach(el=>{
           const field = el.getAttribute('data-field');
           const val = el.value.trim();
@@ -718,17 +715,23 @@ function renderList(){
         state.editId = id;
       }
       render();
-    } else if(action === 'delete'){
-      const id = btn.getAttribute('data-id');
+    };
+  });
+  main.querySelectorAll('[data-action="delete"]').forEach(btn=>{
+    btn.onclick = function(){
+      const id = this.getAttribute('data-id');
       if(!confirm('確定刪除這位與會者嗎?')) return;
       state.attendees = state.attendees.filter(p=>p.id!==id);
       saveAttendees();
       render();
-    } else if(action === 'cancel-edit'){
+    };
+  });
+  main.querySelectorAll('[data-action="cancel-edit"]').forEach(btn=>{
+    btn.onclick = ()=>{
       state.editId = null;
       render();
-    }
-  };
+    };
+  });
   const prev = document.getElementById('prevPage'), next = document.getElementById('nextPage');
   if(prev) prev.onclick = ()=>{ state.listPage--; render(); };
   if(next) next.onclick = ()=>{ state.listPage++; render(); };
