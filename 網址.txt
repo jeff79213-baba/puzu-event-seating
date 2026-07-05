@@ -1,6 +1,9 @@
 --- GitHub ---
 https://github.com/jeff79213-baba/puzu-event-seating
 
+--- GitHub Pages ---
+https://jeff79213-baba.github.io/puzu-event-seating/
+
 --- Firebase Hosting ---
 （無）
 
