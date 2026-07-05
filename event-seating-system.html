@@ -125,6 +125,7 @@
   .toast.err{background:var(--coral);}
   .toast.ok{background:var(--teal);}
 
+  .edit-cell{padding:3px 6px;font-size:12px;width:auto;max-width:100px;}
   .empty-state{text-align:center;padding:50px 20px;color:var(--slate);}
   .empty-state .big{font-size:40px;margin-bottom:8px;}
 
@@ -639,7 +640,7 @@ function renderList(){
               <td>${editing?`<input class="edit-cell" data-field="staff" placeholder="留空=非工作人員" value="${esc(p.staff)}">`:(p.staff?`<span class="chip" style="background:var(--teal);color:#fff;">${esc(p.staff)}</span>`:'—')}</td>
               ${CATS.map(c=>{
                 if(c.isCourse) return `<td>${p.assign.courseSection!=null ? `<span class="chip" style="background:${getSectionColor(p.assign.courseSection)};color:#fff;">${getSectionLabel(p.assign.courseSection)}-${p.assign.courseSeat}</span>` : `<span class="chip empty">未分配</span>`}</td>`;
-                if(editing) return `<td><input class="edit-cell" data-field="assign_${c.key}" type="text" inputmode="numeric" value="${p.assign[c.key]||''}" placeholder="${c.unit}" style="width:38px;padding:3px 4px;font-size:12px;text-align:center;"></td>`;
+                if(editing) return `<td><input class="edit-cell" data-field="assign_${c.key}" type="text" inputmode="numeric" value="${p.assign[c.key]||''}" placeholder="${c.unit}" style="text-align:center;width:38px;"></td>`;
                 return `<td>${p.assign[c.key]?`<span class="chip">${c.unit}${p.assign[c.key]}</span>`:`<span class="chip empty">未分配</span>`}</td>`;
               }).join('')}
               <td style="white-space:nowrap;">
