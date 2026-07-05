@@ -1,0 +1,8 @@
+--- GitHub ---
+https://github.com/jeff79213-baba/puzu-event-seating
+
+--- Firebase Hosting ---
+（無）
+
+--- 本地路徑 ---
+C:\Users\TW-10\Documents\firebase雲端資料夾\葡眾\百人活動用
