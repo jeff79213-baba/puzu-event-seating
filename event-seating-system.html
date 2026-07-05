@@ -145,11 +145,8 @@
     <h1 class="gate-title">報到指揮所</h1>
     <div class="gate-sub">請選擇你的身分進入系統</div>
     <button class="gate-btn" id="btnStaff">工作人員 / 主辦方後台<small>匯入名單、產生座位分組、匯出名單</small></button>
-    <div class="gate-pass" id="passBox">
-      <div style="display:flex;gap:6px;align-items:stretch;">
-        <button id="passToggle" type="button" style="background:var(--ink-3);border:1px solid var(--line-dark);border-radius:10px;color:#9AA1C0;font-size:18px;padding:0 12px;cursor:pointer;">👁️</button>
-        <input type="password" id="passInput" maxlength="8" placeholder="輸入通關密碼" inputmode="numeric" style="flex:1;padding:16px 14px;border-radius:10px;border:1px solid var(--line-dark);background:var(--ink);color:#fff;font-size:18px;text-align:center;letter-spacing:.15em;">
-      </div>
+      <div class="gate-pass" id="passBox">
+        <input type="password" id="passInput" maxlength="8" placeholder="輸入通關密碼" inputmode="numeric" style="width:100%;padding:16px 14px;border-radius:10px;border:1px solid var(--line-dark);background:var(--ink);color:#fff;font-size:18px;text-align:center;letter-spacing:.15em;box-sizing:border-box;">
       <button id="passSubmit">進入後台</button>
       <div class="gate-err" id="passErr">密碼錯誤,請再試一次</div>
     </div>
@@ -1307,11 +1304,6 @@ function renderLookup(){
 
 /* ================= GATE / BOOT ================= */
 document.getElementById('btnStaff').onclick = ()=>{ document.getElementById('passBox').style.display='block'; };
-document.getElementById('passToggle').onclick = ()=>{
-  const inp = document.getElementById('passInput');
-  inp.type = inp.type==='password' ? 'text' : 'password';
-  document.getElementById('passToggle').textContent = inp.type==='password' ? '👁️' : '🙈';
-};
 document.getElementById('passSubmit').onclick = ()=> tryEnterAdmin();
 document.getElementById('passInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryEnterAdmin(); });
 function tryEnterAdmin(){
