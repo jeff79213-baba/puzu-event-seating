@@ -203,6 +203,7 @@ let state = {
   assignFilterOrg: '',
   listSearch: '',
   listPage: 1,
+  editId: null,
   loaded: false
 };
 
@@ -571,22 +572,27 @@ function renderList(){
         <thead><tr><th>姓名</th><th>組織</th><th>性別</th><th>手機</th><th>上線夥伴</th><th>葷素</th><th>工作人員</th>
         ${CATS.map(c=>`<th>${c.label}</th>`).join('')}<th></th></tr></thead>
         <tbody>
-          ${pageList.map(p=>`
-            <tr>
-              <td><b>${esc(p.name)}</b></td>
-              <td>${esc(p.org)||'—'}</td>
-              <td>${genderLabel(p.gender)}</td>
-              <td class="mono">${esc(p.phone)||'—'}</td>
-              <td>${esc(p.sponsor)||'—'}</td>
-              <td>${p.diet==='素'?'🥬素':'🥩葷'}</td>
-              <td>${p.staff?`<span class="chip" style="background:var(--teal);color:#fff;">${esc(p.staff)}</span>`:'—'}</td>
+          ${pageList.map(p=>{
+            const editing = state.editId === p.id;
+            return `<tr class="${editing?'edit-row':''}">
+              <td>${editing?`<input class="edit-cell" data-field="name" value="${esc(p.name)}">`:esc(p.name)}</td>
+              <td>${editing?`<select class="edit-cell" data-field="org">${['',...s.orgs].map(o=>`<option value="${esc(o)}" ${o===p.org?'selected':''}>${esc(o)||'—'}</option>`).join('')}</select>`:esc(p.org)||'—'}</td>
+              <td>${editing?`<select class="edit-cell" data-field="gender"><option value="" ${!p.gender?'selected':''}>—</option><option value="M" ${p.gender==='M'?'selected':''}>男</option><option value="F" ${p.gender==='F'?'selected':''}>女</option><option value="其他" ${p.gender==='其他'?'selected':''}>其他</option></select>`:genderLabel(p.gender)}</td>
+              <td class="mono">${editing?`<input class="edit-cell" data-field="phone" value="${esc(p.phone)}">`:esc(p.phone)||'—'}</td>
+              <td>${editing?`<input class="edit-cell" data-field="sponsor" value="${esc(p.sponsor)}">`:esc(p.sponsor)||'—'}</td>
+              <td>${editing?`<select class="edit-cell" data-field="diet"><option value="葷" ${p.diet==='葷'?'selected':''}>🥩葷</option><option value="素" ${p.diet==='素'?'selected':''}>🥬素</option></select>`:(p.diet==='素'?'🥬素':'🥩葷')}</td>
+              <td>${editing?`<input class="edit-cell" data-field="staff" placeholder="留空=非工作人員" value="${esc(p.staff)}">`:(p.staff?`<span class="chip" style="background:var(--teal);color:#fff;">${esc(p.staff)}</span>`:'—')}</td>
               ${CATS.map(c=>{
                 if(c.isCourse) return `<td>${p.assign.courseSection!=null ? `<span class="chip" style="background:${getSectionColor(p.assign.courseSection)};color:#fff;">${getSectionLabel(p.assign.courseSection)}-${p.assign.courseSeat}</span>` : `<span class="chip empty">未分配</span>`}</td>`;
                 return `<td>${p.assign[c.key]?`<span class="chip">${c.unit}${p.assign[c.key]}</span>`:`<span class="chip empty">未分配</span>`}</td>`;
               }).join('')}
-              <td><button class="btn btn-sm btn-danger" data-del="${p.id}">刪除</button></td>
-            </tr>
-          `).join('')}
+              <td style="white-space:nowrap;">
+                <button class="btn btn-sm ${editing?'btn-primary':'btn-ghost'}" data-edit="${p.id}">${editing?'💾 儲存':'✏️ 編輯'}</button>
+                <button class="btn btn-sm btn-danger" data-del="${p.id}" ${editing?'style="display:none;"':''}>🗑️</button>
+                ${editing?`<button class="btn btn-sm btn-ghost" data-cancel="${p.id}">取消</button>`:''}
+              </td>
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
       </div>
@@ -628,6 +634,41 @@ function renderList(){
     })]));
     downloadCSV('完整名單與分配.csv', rows);
   };
+
+  // Inline edit: toggle edit mode per person
+  main.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
+    const id = b.dataset.edit;
+    if(state.editId === id){
+      // Save mode: read fields and persist
+      const p = state.attendees.find(a=>a.id===id);
+      if(!p) return;
+      const row = b.closest('tr');
+      row.querySelectorAll('.edit-cell').forEach(el=>{
+        const field = el.dataset.field;
+        const val = el.value.trim();
+        if(field==='diet'){ p.diet = normalizeDiet(val); }
+        else if(field==='gender'){ p.gender = val; }
+        else if(field==='org'){ p.org = val; }
+        else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
+        else if(field==='name'){ p.name = val||p.name; }
+        else if(field==='sponsor'){ p.sponsor = val; }
+        else if(field==='staff'){ p.staff = val; }
+      });
+      state.editId = null;
+      saveAttendees();
+      toast('已儲存', 'ok');
+      render();
+    } else {
+      state.editId = id;
+      render();
+    }
+  });
+  // Cancel edit
+  main.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{
+    state.editId = null;
+    render();
+  });
+
   main.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
     if(!confirm('確定刪除這位與會者嗎?')) return;
     state.attendees = state.attendees.filter(p=>p.id!==b.dataset.del);
@@ -697,15 +738,15 @@ function renderAssign(){
     else { pendingPeople.push(p); }
   });
 
+  // ----- org filter: only affects visual display -----
+  const filterOrg = state.assignFilterOrg;
+
   let groupNums = Object.keys(groupsMap).map(Number).filter(k=>k>0).sort((a,b)=>a-b);
   if(filterOrg && !cat.isCourse){
     // Only show groups that contain members from the selected org
     groupNums = groupNums.filter(gi=>(groupsMap[gi]||[]).some(p=>p.org===filterOrg));
   }
   const maxGroup = groupNums.length ? Math.max(...groupNums) : 0;
-
-  // ----- org filter: only affects visual display -----
-  const filterOrg = state.assignFilterOrg;
 
   // ----- meal/room specific counts -----
   let mealStats='', roomStats='';
@@ -931,23 +972,37 @@ function renderAssign(){
 
 function renderCourseSections(){
   const s = state.settings;
-  const attendees = state.attendees;
-  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;">';
+  const attendees = state.attendees.filter(p=>p.assign.courseSection!=null);
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">';
   for(let sec=0; sec<s.courseColors.length; sec++){
     const color = getSectionColor(sec);
     const label = getSectionLabel(sec);
-    const members = attendees.filter(p=>p.assign.courseSection===sec);
+    const members = attendees.filter(p=>p.assign.courseSection===sec).sort((a,b)=>a.assign.courseSeat-b.assign.courseSeat);
     const totalSeats = Math.max(...members.map(p=>p.assign.courseSeat||0), 0);
+    const rowSize = s.courseRowSize;
+    const rows = [];
+    members.forEach(p=>{
+      const rowIdx = Math.floor((p.assign.courseSeat-1) / rowSize);
+      if(!rows[rowIdx]) rows[rowIdx]=[];
+      rows[rowIdx].push(p);
+    });
     html += `<div style="border:3px solid ${color};border-radius:14px;overflow:hidden;background:#fff;">
-      <div style="background:${color};color:#fff;padding:14px;text-align:center;font-weight:900;font-size:22px;">${label}區</div>
-      <div style="padding:12px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--slate);">
-        共 ${members.length} 席 / 最大號碼 ${totalSeats}
+      <div style="background:${color};color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-weight:900;font-size:20px;">${label}區</span>
+        <span style="font-size:13px;opacity:.9;">共 ${members.length} 席</span>
       </div>
-      <div style="padding:0 12px 12px;max-height:300px;overflow-y:auto;">
-        ${members.sort((a,b)=>a.assign.courseSeat-b.assign.courseSeat).map(p=>`
-          <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px;">
-            <span>${esc(p.name)} <span style="color:#aaa;font-size:11px;">${esc(p.org)}</span></span>
-            <span class="mono" style="font-weight:700;color:${color};">${label}-${p.assign.courseSeat}</span>
+      <div style="padding:14px;max-height:500px;overflow-y:auto;">
+        ${rows.map((row,ri)=>`
+          <div style="margin-bottom:8px;">
+            <div style="font-size:11px;color:var(--slate);font-family:'JetBrains Mono',monospace;margin-bottom:4px;padding-left:4px;">第${ri+1}排</div>
+            <div style="display:grid;grid-template-columns:repeat(${Math.min(rowSize,6)},1fr);gap:3px;">
+              ${row.map(p=>`
+                <div style="background:${color}15;border:1px solid ${color}40;border-radius:6px;padding:4px 3px;text-align:center;font-size:11px;line-height:1.2;">
+                  <div style="font-weight:700;">${esc(p.name)}</div>
+                  <div style="color:var(--slate);font-size:9px;">${p.assign.courseSeat}</div>
+                </div>
+              `).join('')}
+            </div>
           </div>
         `).join('')}
       </div>
