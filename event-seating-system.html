@@ -205,6 +205,7 @@ let state = {
   listSearch: '',
   listPage: 1,
   editId: null,
+  _preassignFilterStaff: false,
   loaded: false
 };
 
@@ -213,7 +214,7 @@ async function loadAll(){
   try{
     const r = await window.storage.get(STORAGE_KEY, true);
     state.attendees = r ? JSON.parse(r.value) : [];
-  }catch(e){ state.attendees = []; }
+  }catch(e){ state.attendees = []; try{ const r = localStorage.getItem(STORAGE_KEY); if(r) state.attendees = JSON.parse(r); }catch(e2){} }
   try{
     const r = await window.storage.get(SETTINGS_KEY, true);
     if(r) state.settings = Object.assign({}, state.settings, JSON.parse(r.value));
@@ -222,7 +223,10 @@ async function loadAll(){
 }
 async function saveAttendees(){
   try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state.attendees), true); }
-  catch(e){ toast('儲存失敗,請檢查網路後重試', 'err'); }
+  catch(e){
+    // Fallback to localStorage
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.attendees)); }catch(e2){}
+  }
 }
 async function saveSettings(){
   try{ await window.storage.set(SETTINGS_KEY, JSON.stringify(state.settings), true); }
@@ -258,33 +262,19 @@ function chunkBySize(arr, size){
   for(let i=0; i<arr.length; i+=size) groups.push(arr.slice(i, i+size));
   return groups;
 }
-function parseRoomRanges(input){
-  // Format: "4:5001~5066, 2:2011~2033, 7077~7088, 9022, 9033" etc.
-  // Returns array of {room:string, capacity:number}
+function parseRoomRanges(input, defaultCapacity){
+  // input: "2011~2033, 5001~5066" etc.
+  // defaultCapacity: 2 or 4
   const result = [];
-  const defaultCapacity = state.settings.roomCapacity || 4;
   input.split(',').forEach(part=>{
     part = part.trim();
     if(!part) return;
-    let capacity = defaultCapacity;
-    let rangeStr = part;
-    // Check for capacity prefix like "4:5001~5066" or "雙人房:2011~2033"
-    const capMatch = part.match(/^(\d+|[^\d~\-]+?)\s*[:：]\s*(.+)$/);
-    if(capMatch){
-      const prefix = capMatch[1].trim();
-      rangeStr = capMatch[2].trim();
-      if(/^\d+$/.test(prefix)) capacity = parseInt(prefix);
-      else if(prefix.includes('雙')||prefix.includes('2人')||prefix.includes('二人')) capacity = 2;
-      else if(prefix.includes('四')||prefix.includes('4人')||prefix.includes('四人')) capacity = 4;
-      else if(prefix.includes('單')||prefix.includes('1人')||prefix.includes('一人')) capacity = 1;
-      else if(prefix.includes('六')||prefix.includes('6人')||prefix.includes('六人')||prefix.includes('大')) capacity = 6;
-    }
-    const m = rangeStr.match(/^(\d+)\s*[~\-]\s*(\d+)$/);
+    const m = part.match(/^(\d+)\s*[~\-]\s*(\d+)$/);
     if(m){
       const start = parseInt(m[1]), end = parseInt(m[2]);
-      for(let n=start; n<=end; n++) result.push({room:String(n), capacity});
+      for(let n=start; n<=end; n++) result.push({room:String(n), capacity:defaultCapacity});
     } else {
-      result.push({room:rangeStr, capacity});
+      result.push({room:part, capacity:defaultCapacity});
     }
   });
   return result;
@@ -651,9 +641,9 @@ function renderList(){
                 return `<td>${p.assign[c.key]?`<span class="chip">${c.unit}${p.assign[c.key]}</span>`:`<span class="chip empty">未分配</span>`}</td>`;
               }).join('')}
               <td style="white-space:nowrap;">
-                <button class="btn btn-sm ${editing?'btn-primary':'btn-ghost'}" data-edit="${p.id}">${editing?'💾 儲存':'✏️ 編輯'}</button>
-                <button class="btn btn-sm btn-danger" data-del="${p.id}" ${editing?'style="display:none;"':''}>🗑️</button>
-                ${editing?`<button class="btn btn-sm btn-ghost" data-cancel="${p.id}">取消</button>`:''}
+                <button class="btn btn-sm ${editing?'btn-primary':'btn-ghost'}" onclick="handleEdit('${p.id}', this)">${editing?'💾 儲存':'✏️ 編輯'}</button>
+                <button class="btn btn-sm btn-danger" onclick="handleDelete('${p.id}')" ${editing?'style="display:none;"':''}>🗑️</button>
+                ${editing?`<button class="btn btn-sm btn-ghost" onclick="handleCancelEdit()">取消</button>`:''}
               </td>
             </tr>`;
           }).join('')}
@@ -699,53 +689,45 @@ function renderList(){
     downloadCSV('完整名單與分配.csv', rows);
   };
 
-  // Event delegation for table actions (edit, cancel, delete)
-  const table = main.querySelector('table.data');
-  if(table){
-    table.addEventListener('click', (e)=>{
-      const btn = e.target.closest('button');
-      if(!btn) return;
-      const action = btn.getAttribute('data-edit') ? 'edit' : (btn.getAttribute('data-cancel') ? 'cancel' : (btn.getAttribute('data-del') ? 'del' : null));
-      if(!action) return;
-      const id = btn.getAttribute('data-edit') || btn.getAttribute('data-cancel') || btn.getAttribute('data-del');
-      e.preventDefault();
-
-      if(action==='edit'){
-        if(state.editId === id){
-          // Save mode
-          const p = state.attendees.find(a=>a.id===id);
-          if(!p) return;
-          const row = btn.closest('tr');
-          row.querySelectorAll('.edit-cell').forEach(el=>{
-            const field = el.getAttribute('data-field');
-            const val = el.value.trim();
-            if(field==='diet'){ p.diet = normalizeDiet(val); }
-            else if(field==='gender'){ p.gender = val; }
-            else if(field==='org'){ p.org = val; }
-            else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
-            else if(field==='name'){ p.name = val||p.name; }
-            else if(field==='sponsor'){ p.sponsor = val; }
-            else if(field==='staff'){ p.staff = val; }
-          });
-          state.editId = null;
-          saveAttendees();
-          toast('已儲存', 'ok');
-          render();
-        } else {
-          // Enter edit mode
-          state.editId = id;
-          render();
-        }
-      } else if(action==='cancel'){
-        state.editId = null;
-        render();
-      } else if(action==='del'){
-        if(!confirm('確定刪除這位與會者嗎?')) return;
-        state.attendees = state.attendees.filter(p=>p.id!==id);
-        saveAttendees(); render();
-      }
-    });
-  }
+  // Global handlers for inline onclick
+  window.handleEdit = function(id, btn){
+    if(state.editId === id){
+      const p = state.attendees.find(a=>a.id===id);
+      if(!p) return;
+      const row = btn.closest('tr');
+      row.querySelectorAll('.edit-cell').forEach(el=>{
+        const field = el.getAttribute('data-field');
+        const val = el.value.trim();
+        if(field==='diet'){ p.diet = normalizeDiet(val); }
+        else if(field==='gender'){ p.gender = val; }
+        else if(field==='org'){ p.org = val; }
+        else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
+        else if(field==='name'){ p.name = val||p.name; }
+        else if(field==='sponsor'){ p.sponsor = val; }
+        else if(field==='staff'){ p.staff = val; }
+      });
+      state.editId = null;
+      saveAttendees();
+      toast('已儲存', 'ok');
+    } else {
+      state.editId = id;
+    }
+    render();
+  };
+  window.handleDelete = function(id){
+    if(!confirm('確定刪除這位與會者嗎?')) return;
+    state.attendees = state.attendees.filter(p=>p.id!==id);
+    saveAttendees();
+    render();
+  };
+  window.handleCancelEdit = function(){
+    state.editId = null;
+    render();
+  };
+  window.togglePreassignFilter = function(){
+    state._preassignFilterStaff = !!document.getElementById('preassignFilterStaff')?.checked;
+    render();
+  };
   const prev = document.getElementById('prevPage'), next = document.getElementById('nextPage');
   if(prev) prev.onclick = ()=>{ state.listPage--; render(); };
   if(next) next.onclick = ()=>{ state.listPage++; render(); };
@@ -901,14 +883,21 @@ function renderAssign(){
       <div style="margin-top:12px;border:1px dashed var(--amber);border-radius:10px;padding:12px;background:#fffcf0;">
         <h3 style="margin:0 0 6px;font-size:14px;color:var(--amber-dark);">📋 手動預先分配（${pendingPeople.length} 人待分配）</h3>
         <div class="desc" style="font-size:12.5px;">在每個人後面直接輸入想要的 ${cat.unit}號，再按「分配剩餘人員」</div>
+        <div style="margin-bottom:6px;display:flex;gap:10px;flex-wrap:wrap;">
+          <label style="font-size:12.5px;"><input type="checkbox" id="preassignFilterStaff" ${state._preassignFilterStaff?'checked':''} onchange="togglePreassignFilter()"> 僅顯示工作人員</label>
+        </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px 8px;max-height:240px;overflow-y:auto;">
-          ${(filterOrg ? pendingPeople.filter(p=>p.org===filterOrg) : pendingPeople).map(p=>`
-            <span style="display:inline-flex;align-items:center;gap:3px;background:#fff;border:1px solid var(--line);border-radius:100px;padding:2px 8px 2px 10px;font-size:12.5px;">
+          ${(()=>{
+            const preFilterStaff = state._preassignFilterStaff;
+            let show = filterOrg ? pendingPeople.filter(p=>p.org===filterOrg) : pendingPeople;
+            if(preFilterStaff) show = show.filter(p=>p.staff);
+            return show.map(p=>`
+            <span style="display:inline-flex;align-items:center;gap:3px;background:#fff;border:1px solid var(--line);border-radius:100px;padding:2px 8px 2px 10px;font-size:12.5px;${p.staff?'border-color:var(--teal);background:#f0faf8;':''}">
               ${esc(p.name)}
-              <span style="color:var(--slate);font-size:11px;">${esc(p.org)}</span>
+              <span style="color:var(--slate);font-size:11px;">${esc(p.org)}${p.staff?' 👥'+esc(p.staff):''}</span>
               <input type="number" class="preassign-input" data-pid="${p.id}" min="1" max="999" value="" placeholder="${cat.unit}" style="width:44px;padding:2px 4px;font-size:12px;border-radius:5px;border:1px solid var(--line);">
             </span>
-          `).join('')}
+          `).join('');})()}
         </div>
         <button class="btn btn-sm btn-ghost" id="applyPreassign" style="margin-top:6px;">套用手動設定</button>
       </div>` : ''}
@@ -1180,13 +1169,16 @@ function renderSettings(){
     </div>
     <div class="panel">
       <h2>房間設定</h2>
-      <div class="desc">設定實際房號後，分配房間時會自動套用這些號碼（留空則使用編號1,2,3…）</div>
-      <div class="row">
-        <label class="field" style="flex:1;min-width:260px;">實際房號列表
-          <input type="text" id="setRoomNums" value="${esc(s.roomNumbers.map(r=>(r.capacity!==state.settings.roomCapacity?r.capacity+':'+r.room:r.room)).join(', '))}" placeholder="例：4:5001~5066, 2:2011~2033, 7077~7088, 9022" style="width:100%;font-size:14px;">
-          <span style="font-size:11px;color:var(--slate);">格式：「人數:範圍」用逗號分隔；無人數前綴則使用預設每房人數</span>
+      <div class="desc">設定各類型房間的號碼範圍，分配時會自動比對房型人數</div>
+      <div class="row" style="gap:16px;">
+        <label class="field" style="flex:1;min-width:200px;">兩人房（2人）
+          <input type="text" id="setRoomNums2" value="${esc(s.roomNumbers.filter(r=>r.capacity===2).map(r=>r.room).join(', '))}" placeholder="例：2011~2033, 2055" style="width:100%;font-size:14px;">
+        </label>
+        <label class="field" style="flex:1;min-width:200px;">四人房（4人）
+          <input type="text" id="setRoomNums4" value="${esc(s.roomNumbers.filter(r=>r.capacity===4).map(r=>r.room).join(', '))}" placeholder="例：5001~5066, 7077~7088" style="width:100%;font-size:14px;">
         </label>
       </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--slate);">號碼範圍用 ~ 或 - 表示，多組用逗號分隔</div>
     </div>
     <div class="row" style="margin-bottom:16px;">
       <button class="btn btn-primary" id="btnSaveSettings">儲存設定</button>
@@ -1213,9 +1205,10 @@ function renderSettings(){
     s.courseRowSize = parseInt(document.getElementById('setRowSize').value) || s.courseRowSize;
     s.seatDirection = document.getElementById('setSeatDirection').value;
     s.seatNumbering = document.getElementById('setSeatNumbering').value;
-    // read room numbers
-    const rnVal = document.getElementById('setRoomNums')?.value || '';
-    s.roomNumbers = parseRoomRanges(rnVal);
+    // read room numbers from twin/quad fields
+    const rn2 = document.getElementById('setRoomNums2')?.value || '';
+    const rn4 = document.getElementById('setRoomNums4')?.value || '';
+    s.roomNumbers = [...parseRoomRanges(rn2, 2), ...parseRoomRanges(rn4, 4)];
     saveSettings(); toast('設定已儲存', 'ok'); render();
   };
   // org add/remove
