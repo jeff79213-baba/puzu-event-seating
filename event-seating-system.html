@@ -603,7 +603,7 @@ function renderList(){
   const pageList = list.slice((state.listPage-1)*pageSize, state.listPage*pageSize);
 
   main.innerHTML = `
-    <div class="panel">
+    <div class="panel" id="listPanel">
       <h2>名單管理</h2>
       <div class="desc">支援 CSV 匯入。欄位:姓名 / 性別 / 手機 / 上線夥伴 / 組織 / 葷素 / 工作人員</div>
       <div class="row" style="margin-bottom:16px;">
@@ -641,9 +641,9 @@ function renderList(){
                 return `<td>${p.assign[c.key]?`<span class="chip">${c.unit}${p.assign[c.key]}</span>`:`<span class="chip empty">未分配</span>`}</td>`;
               }).join('')}
               <td style="white-space:nowrap;">
-                <button class="btn btn-sm ${editing?'btn-primary':'btn-ghost'}" onclick="handleEdit('${p.id}', this)">${editing?'💾 儲存':'✏️ 編輯'}</button>
-                <button class="btn btn-sm btn-danger" onclick="handleDelete('${p.id}')" ${editing?'style="display:none;"':''}>🗑️</button>
-                ${editing?`<button class="btn btn-sm btn-ghost" onclick="handleCancelEdit()">取消</button>`:''}
+                <button class="btn btn-sm ${editing?'btn-primary':'btn-ghost'}" data-action="edit" data-id="${p.id}">${editing?'💾 儲存':'✏️ 編輯'}</button>
+                <button class="btn btn-sm btn-danger" data-action="delete" data-id="${p.id}" ${editing?'style="display:none;"':''}>🗑️</button>
+                ${editing?`<button class="btn btn-sm btn-ghost" data-action="cancel-edit">取消</button>`:''}
               </td>
             </tr>`;
           }).join('')}
@@ -689,44 +689,45 @@ function renderList(){
     downloadCSV('完整名單與分配.csv', rows);
   };
 
-  // Global handlers for inline onclick
-  window.handleEdit = function(id, btn){
-    if(state.editId === id){
-      const p = state.attendees.find(a=>a.id===id);
-      if(!p) return;
-      const row = btn.closest('tr');
-      row.querySelectorAll('.edit-cell').forEach(el=>{
-        const field = el.getAttribute('data-field');
-        const val = el.value.trim();
-        if(field==='diet'){ p.diet = normalizeDiet(val); }
-        else if(field==='gender'){ p.gender = val; }
-        else if(field==='org'){ p.org = val; }
-        else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
-        else if(field==='name'){ p.name = val||p.name; }
-        else if(field==='sponsor'){ p.sponsor = val; }
-        else if(field==='staff'){ p.staff = val; }
-      });
-      state.editId = null;
+  // Delegated events for edit/delete/cancel
+  document.getElementById('listPanel').onclick = function(e){
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    const action = btn.getAttribute('data-action');
+    if(action === 'edit'){
+      const id = btn.getAttribute('data-id');
+      if(state.editId === id){
+        const p = state.attendees.find(a=>a.id===id);
+        if(!p) return;
+        const row = btn.closest('tr');
+        row.querySelectorAll('.edit-cell').forEach(el=>{
+          const field = el.getAttribute('data-field');
+          const val = el.value.trim();
+          if(field==='diet'){ p.diet = normalizeDiet(val); }
+          else if(field==='gender'){ p.gender = val; }
+          else if(field==='org'){ p.org = val; }
+          else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
+          else if(field==='name'){ p.name = val||p.name; }
+          else if(field==='sponsor'){ p.sponsor = val; }
+          else if(field==='staff'){ p.staff = val; }
+        });
+        state.editId = null;
+        saveAttendees();
+        toast('已儲存', 'ok');
+      } else {
+        state.editId = id;
+      }
+      render();
+    } else if(action === 'delete'){
+      const id = btn.getAttribute('data-id');
+      if(!confirm('確定刪除這位與會者嗎?')) return;
+      state.attendees = state.attendees.filter(p=>p.id!==id);
       saveAttendees();
-      toast('已儲存', 'ok');
-    } else {
-      state.editId = id;
+      render();
+    } else if(action === 'cancel-edit'){
+      state.editId = null;
+      render();
     }
-    render();
-  };
-  window.handleDelete = function(id){
-    if(!confirm('確定刪除這位與會者嗎?')) return;
-    state.attendees = state.attendees.filter(p=>p.id!==id);
-    saveAttendees();
-    render();
-  };
-  window.handleCancelEdit = function(){
-    state.editId = null;
-    render();
-  };
-  window.togglePreassignFilter = function(){
-    state._preassignFilterStaff = !!document.getElementById('preassignFilterStaff')?.checked;
-    render();
   };
   const prev = document.getElementById('prevPage'), next = document.getElementById('nextPage');
   if(prev) prev.onclick = ()=>{ state.listPage--; render(); };
@@ -864,9 +865,6 @@ function renderAssign(){
           ${cat.key==='room' ? `
           <label class="field" style="flex-direction:row;align-items:center;gap:8px;margin-top:18px;">
             <input type="checkbox" id="sameGenderChk" ${s.roomSameGender?'checked':''}> 僅安排同性別同房
-          </label>
-          <label class="field" style="flex-direction:row;align-items:center;gap:8px;">
-            <input type="checkbox" id="staffFirstChk" checked> 工作人員優先分配
           </label>` : ''}
           <label class="field">篩選組織
             <select id="orgFilter">
@@ -884,13 +882,20 @@ function renderAssign(){
         <h3 style="margin:0 0 6px;font-size:14px;color:var(--amber-dark);">📋 手動預先分配（${pendingPeople.length} 人待分配）</h3>
         <div class="desc" style="font-size:12.5px;">在每個人後面直接輸入想要的 ${cat.unit}號，再按「分配剩餘人員」</div>
         <div style="margin-bottom:6px;display:flex;gap:10px;flex-wrap:wrap;">
-          <label style="font-size:12.5px;"><input type="checkbox" id="preassignFilterStaff" ${state._preassignFilterStaff?'checked':''} onchange="togglePreassignFilter()"> 僅顯示工作人員</label>
+          <label style="font-size:12.5px;">過濾
+            <select id="preassignFilterStaff" onchange="state._preassignFilterStaff=this.value;render()" style="font-size:12px;padding:2px 6px;border-radius:5px;border:1px solid var(--line);">
+              <option value="" ${!state._preassignFilterStaff?'selected':''}>所有人員</option>
+              <option value="staff" ${state._preassignFilterStaff==='staff'?'selected':''}>僅工作人員</option>
+              <option value="nonstaff" ${state._preassignFilterStaff==='nonstaff'?'selected':''}>非工作人員</option>
+            </select>
+          </label>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px 8px;max-height:240px;overflow-y:auto;">
+          <div style="display:flex;flex-wrap:wrap;gap:4px 8px;max-height:240px;overflow-y:auto;">
           ${(()=>{
-            const preFilterStaff = state._preassignFilterStaff;
+            const pf = state._preassignFilterStaff;
             let show = filterOrg ? pendingPeople.filter(p=>p.org===filterOrg) : pendingPeople;
-            if(preFilterStaff) show = show.filter(p=>p.staff);
+            if(pf==='staff') show = show.filter(p=>p.staff);
+            else if(pf==='nonstaff') show = show.filter(p=>!p.staff);
             return show.map(p=>`
             <span style="display:inline-flex;align-items:center;gap:3px;background:#fff;border:1px solid var(--line);border-radius:100px;padding:2px 8px 2px 10px;font-size:12.5px;${p.staff?'border-color:var(--teal);background:#f0faf8;':''}">
               ${esc(p.name)}
