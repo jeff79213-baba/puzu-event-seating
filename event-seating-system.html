@@ -146,7 +146,10 @@
     <div class="gate-sub">請選擇你的身分進入系統</div>
     <button class="gate-btn" id="btnStaff">工作人員 / 主辦方後台<small>匯入名單、產生座位分組、匯出名單</small></button>
     <div class="gate-pass" id="passBox">
-      <input type="tel" id="passInput" maxlength="8" placeholder="輸入通關密碼" inputmode="numeric">
+      <div style="display:flex;gap:6px;align-items:stretch;">
+        <input type="password" id="passInput" maxlength="8" placeholder="輸入通關密碼" inputmode="numeric" style="flex:1;padding:12px;border-radius:8px;border:1px solid var(--line-dark);background:var(--ink);color:#fff;font-size:16px;text-align:center;letter-spacing:.3em;">
+        <button id="passToggle" type="button" style="background:var(--ink-3);border:1px solid var(--line-dark);border-radius:8px;color:#9AA1C0;font-size:18px;padding:0 12px;cursor:pointer;">👁️</button>
+      </div>
       <button id="passSubmit">進入後台</button>
       <div class="gate-err" id="passErr">密碼錯誤,請再試一次</div>
     </div>
@@ -259,20 +262,35 @@ function chunkBySize(arr, size){
   return groups;
 }
 function parseRoomRanges(input){
-  // "2011~2033, 5001~5066, 9022, 9033" → ["2011",...]
-  const nums = [];
+  // Format: "4:5001~5066, 2:2011~2033, 7077~7088, 9022, 9033" etc.
+  // Returns array of {room:string, capacity:number}
+  const result = [];
+  const defaultCapacity = state.settings.roomCapacity || 4;
   input.split(',').forEach(part=>{
     part = part.trim();
     if(!part) return;
-    const m = part.match(/^(\d+)\s*[~\-]\s*(\d+)$/);
+    let capacity = defaultCapacity;
+    let rangeStr = part;
+    // Check for capacity prefix like "4:5001~5066" or "雙人房:2011~2033"
+    const capMatch = part.match(/^(\d+|[^\d~\-]+?)\s*[:：]\s*(.+)$/);
+    if(capMatch){
+      const prefix = capMatch[1].trim();
+      rangeStr = capMatch[2].trim();
+      if(/^\d+$/.test(prefix)) capacity = parseInt(prefix);
+      else if(prefix.includes('雙')||prefix.includes('2人')||prefix.includes('二人')) capacity = 2;
+      else if(prefix.includes('四')||prefix.includes('4人')||prefix.includes('四人')) capacity = 4;
+      else if(prefix.includes('單')||prefix.includes('1人')||prefix.includes('一人')) capacity = 1;
+      else if(prefix.includes('六')||prefix.includes('6人')||prefix.includes('六人')||prefix.includes('大')) capacity = 6;
+    }
+    const m = rangeStr.match(/^(\d+)\s*[~\-]\s*(\d+)$/);
     if(m){
       const start = parseInt(m[1]), end = parseInt(m[2]);
-      for(let n=start; n<=end; n++) nums.push(String(n));
+      for(let n=start; n<=end; n++) result.push({room:String(n), capacity});
     } else {
-      nums.push(part);
+      result.push({room:rangeStr, capacity});
     }
   });
-  return nums;
+  return result;
 }
 
 function generateAssignment(catKey){
@@ -418,15 +436,26 @@ function generateAssignment(catKey){
 
   // ---- Assign actual room numbers if configured ----
   if(catKey==='room' && s.roomNumbers && s.roomNumbers.length>0){
-    const actualNums = [...s.roomNumbers];
-    // Groups sorted by their assigned counter number
     const gro = {};
     people.forEach(p=>{ if(p.assign.room){ (gro[p.assign.room] = gro[p.assign.room] || []).push(p); } });
     const sortedGroups = Object.keys(gro).map(Number).sort((a,b)=>a-b);
-    // Also assign room numbers to pre-existing groups
-    sortedGroups.forEach((g, idx)=>{
-      if(actualNums[idx]) {
-        (gro[g]||[]).forEach(p=>{ p.assign.roomNumber = actualNums[idx]; });
+    let roomIdx = 0;
+    sortedGroups.forEach(g=>{
+      const count = (gro[g]||[]).length;
+      // Find first remaining room that fits the group size
+      for(let r = roomIdx; r < s.roomNumbers.length; r++){
+        if(s.roomNumbers[r].capacity >= count){
+          (gro[g]||[]).forEach(p=>{ p.assign.roomNumber = s.roomNumbers[r].room; });
+          roomIdx = r + 1;
+          return;
+        }
+      }
+      // If no room fits, try from start (reuse rooms)
+      for(let r = 0; r < roomIdx; r++){
+        if(s.roomNumbers[r].capacity >= count){
+          (gro[g]||[]).forEach(p=>{ p.assign.roomNumber = s.roomNumbers[r].room; });
+          return;
+        }
       }
     });
   }
@@ -673,55 +702,53 @@ function renderList(){
     downloadCSV('完整名單與分配.csv', rows);
   };
 
-  // Inline edit: toggle edit mode per person
-  main.querySelectorAll('[data-edit]').forEach(b=>{
-    b.setAttribute('type','button');
-    b.addEventListener('click',()=>{
-      const id = b.getAttribute('data-edit');
-      if(state.editId === id){
-        // Save mode: read fields and persist
-        const p = state.attendees.find(a=>a.id===id);
-        if(!p) return;
-        const row = b.closest('tr');
-        row.querySelectorAll('.edit-cell').forEach(el=>{
-          const field = el.getAttribute('data-field');
-          const val = el.value.trim();
-          if(field==='diet'){ p.diet = normalizeDiet(val); }
-          else if(field==='gender'){ p.gender = val; }
-          else if(field==='org'){ p.org = val; }
-          else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
-          else if(field==='name'){ p.name = val||p.name; }
-          else if(field==='sponsor'){ p.sponsor = val; }
-          else if(field==='staff'){ p.staff = val; }
-        });
+  // Event delegation for table actions (edit, cancel, delete)
+  const table = main.querySelector('table.data');
+  if(table){
+    table.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button');
+      if(!btn) return;
+      const action = btn.getAttribute('data-edit') ? 'edit' : (btn.getAttribute('data-cancel') ? 'cancel' : (btn.getAttribute('data-del') ? 'del' : null));
+      if(!action) return;
+      const id = btn.getAttribute('data-edit') || btn.getAttribute('data-cancel') || btn.getAttribute('data-del');
+      e.preventDefault();
+
+      if(action==='edit'){
+        if(state.editId === id){
+          // Save mode
+          const p = state.attendees.find(a=>a.id===id);
+          if(!p) return;
+          const row = btn.closest('tr');
+          row.querySelectorAll('.edit-cell').forEach(el=>{
+            const field = el.getAttribute('data-field');
+            const val = el.value.trim();
+            if(field==='diet'){ p.diet = normalizeDiet(val); }
+            else if(field==='gender'){ p.gender = val; }
+            else if(field==='org'){ p.org = val; }
+            else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
+            else if(field==='name'){ p.name = val||p.name; }
+            else if(field==='sponsor'){ p.sponsor = val; }
+            else if(field==='staff'){ p.staff = val; }
+          });
+          state.editId = null;
+          saveAttendees();
+          toast('已儲存', 'ok');
+          render();
+        } else {
+          // Enter edit mode
+          state.editId = id;
+          render();
+        }
+      } else if(action==='cancel'){
         state.editId = null;
-        saveAttendees();
-        toast('已儲存', 'ok');
         render();
-      } else {
-        // Enter edit mode – close any other open edit first
-        if(state.editId) state.editId = null;
-        state.editId = id;
-        render();
+      } else if(action==='del'){
+        if(!confirm('確定刪除這位與會者嗎?')) return;
+        state.attendees = state.attendees.filter(p=>p.id!==id);
+        saveAttendees(); render();
       }
     });
-  });
-  // Cancel edit
-  main.querySelectorAll('[data-cancel]').forEach(b=>{
-    b.setAttribute('type','button');
-    b.addEventListener('click',()=>{
-      state.editId = null;
-      render();
-    });
-  });
-  main.querySelectorAll('[data-del]').forEach(b=>{
-    b.setAttribute('type','button');
-    b.addEventListener('click',()=>{
-      if(!confirm('確定刪除這位與會者嗎?')) return;
-      state.attendees = state.attendees.filter(p=>p.id!==b.getAttribute('data-del'));
-      saveAttendees(); render();
-    });
-  });
+  }
   const prev = document.getElementById('prevPage'), next = document.getElementById('nextPage');
   if(prev) prev.onclick = ()=>{ state.listPage--; render(); };
   if(next) next.onclick = ()=>{ state.listPage++; render(); };
@@ -873,6 +900,21 @@ function renderAssign(){
         <button class="btn" id="btnExportCat" style="align-self:flex-end;">匯出此項 CSV</button>
       </div>
       ${cat.key==='meal'?mealStats:''}${cat.key==='room'?roomStats:''}
+      ${!cat.isCourse && pendingPeople.length>0 ? `
+      <div style="margin-top:12px;border:1px dashed var(--amber);border-radius:10px;padding:12px;background:#fffcf0;">
+        <h3 style="margin:0 0 6px;font-size:14px;color:var(--amber-dark);">📋 手動預先分配（${pendingPeople.length} 人待分配）</h3>
+        <div class="desc" style="font-size:12.5px;">在每個人後面直接輸入想要的 ${cat.unit}號，再按「分配剩餘人員」</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px 8px;max-height:240px;overflow-y:auto;">
+          ${(filterOrg ? pendingPeople.filter(p=>p.org===filterOrg) : pendingPeople).map(p=>`
+            <span style="display:inline-flex;align-items:center;gap:3px;background:#fff;border:1px solid var(--line);border-radius:100px;padding:2px 8px 2px 10px;font-size:12.5px;">
+              ${esc(p.name)}
+              <span style="color:var(--slate);font-size:11px;">${esc(p.org)}</span>
+              <input type="number" class="preassign-input" data-pid="${p.id}" min="1" max="999" value="" placeholder="${cat.unit}" style="width:44px;padding:2px 4px;font-size:12px;border-radius:5px;border:1px solid var(--line);">
+            </span>
+          `).join('')}
+        </div>
+        <button class="btn btn-sm btn-ghost" id="applyPreassign" style="margin-top:6px;">套用手動設定</button>
+      </div>` : ''}
     </div>
     <div class="panel">
       <h2>${cat.label}結果</h2>
@@ -980,6 +1022,20 @@ function renderAssign(){
       rows.push([p.name,p.org,genderLabel(p.gender),p.phone,p.sponsor,p.diet,p.staff||'', v]);
     });
     downloadCSV(label+'名單.csv', rows);
+  };
+
+  // Pre-assign: apply manual group numbers
+  const applyBtn = document.getElementById('applyPreassign');
+  if(applyBtn) applyBtn.onclick = ()=>{
+    let count = 0;
+    document.querySelectorAll('.preassign-input').forEach(inp=>{
+      const val = inp.value.trim();
+      if(!val) return;
+      const p = state.attendees.find(a=>a.id===inp.getAttribute('data-pid'));
+      if(p){ p.assign[cat.key] = parseInt(val); count++; }
+    });
+    if(count>0){ saveAttendees(); toast(`已設定 ${count} 人`, 'ok'); render(); }
+    else toast('請先輸入 '+cat.unit+'號', '');
   };
 
   // move person to another group
@@ -1130,8 +1186,8 @@ function renderSettings(){
       <div class="desc">設定實際房號後，分配房間時會自動套用這些號碼（留空則使用編號1,2,3…）</div>
       <div class="row">
         <label class="field" style="flex:1;min-width:260px;">實際房號列表
-          <input type="text" id="setRoomNums" value="${esc(s.roomNumbers.join(', '))}" placeholder="例：2011~2033, 5001~5066, 9022, 9033" style="width:100%;font-size:14px;">
-          <span style="font-size:11px;color:var(--slate);">用逗號分隔，範圍用 ~ 或 -（如 2011~2033）</span>
+          <input type="text" id="setRoomNums" value="${esc(s.roomNumbers.map(r=>(r.capacity!==state.settings.roomCapacity?r.capacity+':'+r.room:r.room)).join(', '))}" placeholder="例：4:5001~5066, 2:2011~2033, 7077~7088, 9022" style="width:100%;font-size:14px;">
+          <span style="font-size:11px;color:var(--slate);">格式：「人數:範圍」用逗號分隔；無人數前綴則使用預設每房人數</span>
         </label>
       </div>
     </div>
@@ -1251,6 +1307,11 @@ function renderLookup(){
 
 /* ================= GATE / BOOT ================= */
 document.getElementById('btnStaff').onclick = ()=>{ document.getElementById('passBox').style.display='block'; };
+document.getElementById('passToggle').onclick = ()=>{
+  const inp = document.getElementById('passInput');
+  inp.type = inp.type==='password' ? 'text' : 'password';
+  document.getElementById('passToggle').textContent = inp.type==='password' ? '👁️' : '🙈';
+};
 document.getElementById('passSubmit').onclick = ()=> tryEnterAdmin();
 document.getElementById('passInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryEnterAdmin(); });
 function tryEnterAdmin(){
