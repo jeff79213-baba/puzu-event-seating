@@ -196,7 +196,8 @@ let state = {
     mealSize: 10,
     roomCapacity: 4,
     activitySize: 10,
-    roomSameGender: true
+    roomSameGender: true,
+    roomNumbers: []
   },
   tab: 'dashboard',
   assignCat: 'course',
@@ -257,6 +258,22 @@ function chunkBySize(arr, size){
   for(let i=0; i<arr.length; i+=size) groups.push(arr.slice(i, i+size));
   return groups;
 }
+function parseRoomRanges(input){
+  // "2011~2033, 5001~5066, 9022, 9033" → ["2011",...]
+  const nums = [];
+  input.split(',').forEach(part=>{
+    part = part.trim();
+    if(!part) return;
+    const m = part.match(/^(\d+)\s*[~\-]\s*(\d+)$/);
+    if(m){
+      const start = parseInt(m[1]), end = parseInt(m[2]);
+      for(let n=start; n<=end; n++) nums.push(String(n));
+    } else {
+      nums.push(part);
+    }
+  });
+  return nums;
+}
 
 function generateAssignment(catKey){
   const s = state.settings;
@@ -265,34 +282,32 @@ function generateAssignment(catKey){
 
   if(catKey==='course'){ generateCourseAssignment(); return; }
 
-  // Clear existing assignments for this category
-  people.forEach(p=>{ p.assign[catKey] = null; });
+  // Preserve existing manual assignments – only assign unassigned people
+  const existingGroups = [...new Set(people.map(p=>p.assign[catKey]).filter(v=>v!=null))].sort((a,b)=>a-b);
+  let globalCounter = existingGroups.length ? Math.max(...existingGroups) + 1 : 1;
 
-  // ---- Per-org block allocation ----
-  const orgMap = {};
-  people.forEach(p=>{ const k=p.org||'未指定'; (orgMap[k]=orgMap[k]||[]).push(p); });
+  const unassigned = people.filter(p=>!p.assign[catKey]);
+  if(unassigned.length===0){ toast('所有人員都已分配完畢', 'ok'); return; }
 
   const allGroups = [];
-  let globalCounter = 1;
 
   if(catKey==='room'){
-    // Staff (工作人員) pre-assignment: assign staff first, then rest auto
-    const staffPeople = people.filter(p=>p.staff);
-    const normalPeople = people.filter(p=>!p.staff);
+    // Staff auto-assign within unassigned only
+    const staffPeople = unassigned.filter(p=>p.staff);
+    const normalPeople = unassigned.filter(p=>!p.staff);
     if(staffPeople.length>0){
       const staffGroups = chunkBySize(staffPeople, s.roomCapacity);
-      staffGroups.forEach((grp, i)=>{
+      staffGroups.forEach(grp=>{
         grp.forEach(p=>{ p.assign.room = globalCounter; });
         allGroups.push(grp);
         globalCounter++;
       });
-      toast(`👥 ${staffPeople.length} 位工作人員已優先分配房間`, 'ok');
     }
     // Now normal people by org
-    const orgMap2 = {};
-    normalPeople.forEach(p=>{ const k=p.org||'未指定'; (orgMap2[k]=orgMap2[k]||[]).push(p); });
-    Object.keys(orgMap2).forEach(org=>{
-      const sub = orgMap2[org];
+    const orgMap = {};
+    normalPeople.forEach(p=>{ const k=p.org||'未指定'; (orgMap[k]=orgMap[k]||[]).push(p); });
+    Object.keys(orgMap).forEach(org=>{
+      const sub = orgMap[org];
       if(s.roomSameGender){
         ['M','F','其他'].forEach(g=>{
           const gPeople = sub.filter(p=>(p.gender||'其他')===g);
@@ -318,16 +333,12 @@ function generateAssignment(catKey){
       }
     });
   } else if(catKey==='meal'){
-    // Separate veg across orgs, non-veg within org
     const vegPeople = [], nonVegMap = {};
-    Object.keys(orgMap).forEach(org=>{
-      nonVegMap[org] = [];
-      orgMap[org].forEach(p=>{
-        if(p.diet==='素') vegPeople.push(p);
-        else nonVegMap[org].push(p);
-      });
+    unassigned.forEach(p=>{
+      const k=p.org||'未指定';
+      if(p.diet==='素') vegPeople.push(p);
+      else { (nonVegMap[k]=nonVegMap[k]||[]).push(p); }
     });
-    // Non-veg: per org
     Object.keys(nonVegMap).forEach(org=>{
       const groups = chunkBySize(nonVegMap[org], s.mealSize);
       groups.forEach((grp, i)=>{
@@ -338,7 +349,6 @@ function generateAssignment(catKey){
         }
       });
     });
-    // Veg: cross-org allowed
     if(vegPeople.length>0){
       const groups = chunkBySize(vegPeople, s.mealSize);
       groups.forEach(grp=>{
@@ -348,13 +358,15 @@ function generateAssignment(catKey){
       });
     }
   } else if(catKey==='activity'){
-    // Activity: group by sponsor within org
+    // Activity: only unassigned people, group by sponsor within org
+    const orgMap = {};
+    unassigned.forEach(p=>{ const k=p.org||'未指定'; (orgMap[k]=orgMap[k]||[]).push(p); });
     Object.keys(orgMap).forEach(org=>{
       const sub = orgMap[org];
       const sponsorMap = {};
       sub.forEach(p=>{
         const sp = p.sponsor || '';
-        if(!sp) return; // no sponsor → goes to pending
+        if(!sp) return;
         (sponsorMap[sp] = sponsorMap[sp] || []).push(p);
       });
       Object.keys(sponsorMap).forEach(sp=>{
@@ -375,27 +387,53 @@ function generateAssignment(catKey){
         }
       });
     });
+    // Remaining after sponsor-based → pending
+    const stillUnassigned = unassigned.filter(p=>!p.assign.activity);
+    if(stillUnassigned.length>0){
+      toast(`⚠️ ${stillUnassigned.length} 人無上線夥伴或剩員，已保留在待分配區`, '');
+    }
+  } else {
+    // Generic fallback
+    const groups = chunkBySize(unassigned, s.mealSize);
+    groups.forEach(grp=>{
+      grp.forEach(p=>{ p.assign[catKey] = globalCounter; });
+      allGroups.push(grp);
+      globalCounter++;
+    });
   }
 
-  // ---- Handle remaining ----
-  const unassigned = people.filter(p=>!p.assign[catKey]);
-  if(unassigned.length>0){
-    if(catKey==='activity'){
-      // Activity: remaining goes to pending (not auto-assign across orgs)
-      toast(`⚠️ ${unassigned.length} 人無上線夥伴或剩員，已保留在待分配區`, '');
-    } else {
-      const groups = chunkBySize(unassigned, catKey==='room'?s.roomCapacity:s.mealSize);
+  // ---- Handle remaining (meal/room) ----
+  if(catKey==='meal' || catKey==='room'){
+    const stillUnassigned = unassigned.filter(p=>!p.assign[catKey]);
+    if(stillUnassigned.length>0){
+      const groups = chunkBySize(stillUnassigned, catKey==='room'?s.roomCapacity:s.mealSize);
       groups.forEach(grp=>{
         grp.forEach(p=>{ p.assign[catKey] = globalCounter; });
         allGroups.push(grp);
         globalCounter++;
       });
-      toast(`⚠️ ${unassigned.length} 人跨組織合併，請確認`, '');
+      toast(`⚠️ ${stillUnassigned.length} 人跨組織合併`, '');
     }
   }
 
+  // ---- Assign actual room numbers if configured ----
+  if(catKey==='room' && s.roomNumbers && s.roomNumbers.length>0){
+    const actualNums = [...s.roomNumbers];
+    // Groups sorted by their assigned counter number
+    const gro = {};
+    people.forEach(p=>{ if(p.assign.room){ (gro[p.assign.room] = gro[p.assign.room] || []).push(p); } });
+    const sortedGroups = Object.keys(gro).map(Number).sort((a,b)=>a-b);
+    // Also assign room numbers to pre-existing groups
+    sortedGroups.forEach((g, idx)=>{
+      if(actualNums[idx]) {
+        (gro[g]||[]).forEach(p=>{ p.assign.roomNumber = actualNums[idx]; });
+      }
+    });
+  }
+
   saveAttendees();
-  toast('已完成「'+CATS.find(c=>c.key===catKey).label+'」自動分配', 'ok');
+  const assigned = unassigned.filter(p=>p.assign[catKey]).length;
+  toast(`已完成 ${assigned} 人分配` + (existingGroups.length>0 ? `（保留 ${existingGroups.length} 組既有分配）` : ''), 'ok');
   render();
 }
 
@@ -617,7 +655,7 @@ function renderList(){
         res.data.forEach(row=>{
           const m = matchAttendee(row, orgHint);
           if(!m.name) return;
-          state.attendees.push({ id: uid(), name:m.name, org:m.org, gender:m.gender, sponsor:m.sponsor, phone:m.phone, phone4:m.phone4, diet:m.diet, staff:m.staff||'', assign:{courseSection:null,courseSeat:null,meal:null,room:null,activity:null,activityRoom:null} });
+          state.attendees.push({ id: uid(), name:m.name, org:m.org, gender:m.gender, sponsor:m.sponsor, phone:m.phone, phone4:m.phone4, diet:m.diet, staff:m.staff||'', assign:{courseSection:null,courseSeat:null,meal:null,room:null,roomNumber:null,activity:null,activityRoom:null} });
           added++;
         });
         saveAttendees();
@@ -636,43 +674,53 @@ function renderList(){
   };
 
   // Inline edit: toggle edit mode per person
-  main.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
-    const id = b.dataset.edit;
-    if(state.editId === id){
-      // Save mode: read fields and persist
-      const p = state.attendees.find(a=>a.id===id);
-      if(!p) return;
-      const row = b.closest('tr');
-      row.querySelectorAll('.edit-cell').forEach(el=>{
-        const field = el.dataset.field;
-        const val = el.value.trim();
-        if(field==='diet'){ p.diet = normalizeDiet(val); }
-        else if(field==='gender'){ p.gender = val; }
-        else if(field==='org'){ p.org = val; }
-        else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
-        else if(field==='name'){ p.name = val||p.name; }
-        else if(field==='sponsor'){ p.sponsor = val; }
-        else if(field==='staff'){ p.staff = val; }
-      });
-      state.editId = null;
-      saveAttendees();
-      toast('已儲存', 'ok');
-      render();
-    } else {
-      state.editId = id;
-      render();
-    }
+  main.querySelectorAll('[data-edit]').forEach(b=>{
+    b.setAttribute('type','button');
+    b.addEventListener('click',()=>{
+      const id = b.getAttribute('data-edit');
+      if(state.editId === id){
+        // Save mode: read fields and persist
+        const p = state.attendees.find(a=>a.id===id);
+        if(!p) return;
+        const row = b.closest('tr');
+        row.querySelectorAll('.edit-cell').forEach(el=>{
+          const field = el.getAttribute('data-field');
+          const val = el.value.trim();
+          if(field==='diet'){ p.diet = normalizeDiet(val); }
+          else if(field==='gender'){ p.gender = val; }
+          else if(field==='org'){ p.org = val; }
+          else if(field==='phone'){ p.phone = val; p.phone4 = val.slice(-4); }
+          else if(field==='name'){ p.name = val||p.name; }
+          else if(field==='sponsor'){ p.sponsor = val; }
+          else if(field==='staff'){ p.staff = val; }
+        });
+        state.editId = null;
+        saveAttendees();
+        toast('已儲存', 'ok');
+        render();
+      } else {
+        // Enter edit mode – close any other open edit first
+        if(state.editId) state.editId = null;
+        state.editId = id;
+        render();
+      }
+    });
   });
   // Cancel edit
-  main.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{
-    state.editId = null;
-    render();
+  main.querySelectorAll('[data-cancel]').forEach(b=>{
+    b.setAttribute('type','button');
+    b.addEventListener('click',()=>{
+      state.editId = null;
+      render();
+    });
   });
-
-  main.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
-    if(!confirm('確定刪除這位與會者嗎?')) return;
-    state.attendees = state.attendees.filter(p=>p.id!==b.dataset.del);
-    saveAttendees(); render();
+  main.querySelectorAll('[data-del]').forEach(b=>{
+    b.setAttribute('type','button');
+    b.addEventListener('click',()=>{
+      if(!confirm('確定刪除這位與會者嗎?')) return;
+      state.attendees = state.attendees.filter(p=>p.id!==b.getAttribute('data-del'));
+      saveAttendees(); render();
+    });
   });
   const prev = document.getElementById('prevPage'), next = document.getElementById('nextPage');
   if(prev) prev.onclick = ()=>{ state.listPage--; render(); };
@@ -713,7 +761,7 @@ function openAttendeeForm(){
   let diet = prompt('葷素(葷/素,預設葷):') || '葷';
   diet = normalizeDiet(diet);
   const staff = prompt('工作人員職務(可留空,非工作人員留空):') || '';
-  state.attendees.push({ id: uid(), name, org, gender, phone, phone4: phone.slice(-4), sponsor, diet, staff, assign:{courseSection:null,courseSeat:null,meal:null,room:null,activity:null,activityRoom:null} });
+  state.attendees.push({ id: uid(), name, org, gender, phone, phone4: phone.slice(-4), sponsor, diet, staff, assign:{courseSection:null,courseSeat:null,meal:null,room:null,roomNumber:null,activity:null,activityRoom:null} });
   saveAttendees(); toast('新增成功', 'ok'); render();
 }
 
@@ -775,7 +823,7 @@ function renderAssign(){
   main.innerHTML = `
     <div class="panel">
       <h2>座位 / 分組分配</h2>
-      <div class="desc">${cat.isCourse ? '課程在大禮堂，分4色區塊，各區獨立編號。' : cat.key==='activity' ? '分組活動依上線夥伴分配，無上線夥伴或剩員保留在待分配區由工作人員手動分配。' : '依組織區塊分配，各組織人員不分散；剩員自動跨組織合併。重新產生會覆蓋手動調整。'}</div>
+      <div class="desc">${cat.isCourse ? '課程在大禮堂，分4色區塊，各區獨立編號。' : cat.key==='activity' ? '分組活動依上線夥伴分配，無上線夥伴或剩員保留在待分配區由工作人員手動分配。' : '依組織區塊分配；已手動安排者不受影響，僅自動分配未安排人員。'}</div>
       <div class="cat-tabs">
         ${CATS.map(c=>`<button class="cat-tab ${c.key===state.assignCat?'active':''}" data-cat="${c.key}">${c.label}</button>`).join('')}
       </div>
@@ -821,7 +869,7 @@ function renderAssign(){
             </select>
           </label>
         `}
-        <button class="btn btn-amber" id="btnGenerate" style="align-self:flex-end;">🔄 產生 / 重新分配</button>
+        <button class="btn btn-amber" id="btnGenerate" style="align-self:flex-end;">🔄 分配剩餘人員</button>
         <button class="btn" id="btnExportCat" style="align-self:flex-end;">匯出此項 CSV</button>
       </div>
       ${cat.key==='meal'?mealStats:''}${cat.key==='room'?roomStats:''}
@@ -829,7 +877,7 @@ function renderAssign(){
     <div class="panel">
       <h2>${cat.label}結果</h2>
       <div class="desc">${maxGroup>0 ? (cat.isCourse ? `共 ${s.courseColors.length} 區塊` : `共 ${maxGroup} ${cat.unit}`) : '尚未產生分配'}</div>
-      ${maxGroup===0 ? `<div class="empty-state"><div class="big">🪑</div>按上方「產生 / 重新分配」開始</div>` : (cat.isCourse ? renderCourseSections() : `
+      ${maxGroup===0 ? `<div class="empty-state"><div class="big">🪑</div>按上方「分配剩餘人員」開始</div>` : (cat.isCourse ? renderCourseSections() : `
       <div class="tile-grid" id="tileGrid">
         ${groupNums.map(gi=>{
           const members = groupsMap[gi] || [];
@@ -837,9 +885,10 @@ function renderAssign(){
           const isStaff = members.some(p=>p.staff);
           const showRoom = cat.key==='activity';
           const roomNums = showRoom ? [...new Set(members.map(p=>p.assign.activityRoom||p.assign.room||'').filter(Boolean))].sort() : [];
+          const roomLabel = cat.key==='room' ? (members[0]?.assign.roomNumber ? `房${members[0].assign.roomNumber}` : `${cat.unit}${gi}`) : `${cat.unit}${gi}`;
           return `<div class="tile" style="${isStaff?'border-color:var(--teal);':''}">
             <div class="tile-head" style="${isStaff?'background:var(--teal);':''}">
-              <span class="num mono">${cat.unit}${gi}</span>
+              <span class="num mono">${roomLabel}</span>
               <span class="cnt">${members.length} 人${orgs.length>1?' / 混':''}${isStaff?' 👥工作人員':''}${roomNums.length?` 🏠房${roomNums.join(',')}`:''}</span>
             </div>
             <div class="tile-body">
@@ -902,7 +951,7 @@ function renderAssign(){
   if(orgFilterEl) orgFilterEl.onchange = ()=>{ state.assignFilterOrg = orgFilterEl.value; render(); };
 
   document.getElementById('btnGenerate').onclick = ()=>{
-    if(maxGroup>0 && !cat.isCourse && !confirm('重新分配將覆蓋目前已手動調整的內容,確定繼續嗎?')) return;
+    if(!confirm('將自動分配尚未安排的人員。已手動分配者不受影響，確定繼續嗎?')) return;
     if(cat.isCourse){
       s.courseRowSize = parseInt(document.getElementById('sizeInput').value) || s.courseRowSize;
       s.seatDirection = document.getElementById('seatDirection').value;
@@ -1076,6 +1125,16 @@ function renderSettings(){
         </label>
       </div>
     </div>
+    <div class="panel">
+      <h2>房間設定</h2>
+      <div class="desc">設定實際房號後，分配房間時會自動套用這些號碼（留空則使用編號1,2,3…）</div>
+      <div class="row">
+        <label class="field" style="flex:1;min-width:260px;">實際房號列表
+          <input type="text" id="setRoomNums" value="${esc(s.roomNumbers.join(', '))}" placeholder="例：2011~2033, 5001~5066, 9022, 9033" style="width:100%;font-size:14px;">
+          <span style="font-size:11px;color:var(--slate);">用逗號分隔，範圍用 ~ 或 -（如 2011~2033）</span>
+        </label>
+      </div>
+    </div>
     <div class="row" style="margin-bottom:16px;">
       <button class="btn btn-primary" id="btnSaveSettings">儲存設定</button>
     </div>
@@ -1101,6 +1160,9 @@ function renderSettings(){
     s.courseRowSize = parseInt(document.getElementById('setRowSize').value) || s.courseRowSize;
     s.seatDirection = document.getElementById('setSeatDirection').value;
     s.seatNumbering = document.getElementById('setSeatNumbering').value;
+    // read room numbers
+    const rnVal = document.getElementById('setRoomNums')?.value || '';
+    s.roomNumbers = parseRoomRanges(rnVal);
     saveSettings(); toast('設定已儲存', 'ok'); render();
   };
   // org add/remove
@@ -1175,6 +1237,10 @@ function renderLookup(){
             const gn = p.assign.activity ? '組'+p.assign.activity : '待公布';
             const rn = p.assign.activityRoom || p.assign.room || '';
             return `<div class="result-tile"><div class="k">${c.label}</div><div class="v">${gn}${rn?' / 房'+rn:''}</div></div>`;
+          }
+          if(c.key==='room'){
+            const rn = p.assign.roomNumber || p.assign.room || '';
+            return `<div class="result-tile"><div class="k">${c.label}</div><div class="v">${rn?'房'+rn:'待公布'}</div></div>`;
           }
           return `<div class="result-tile"><div class="k">${c.label}</div><div class="v">${p.assign[c.key]?c.unit+p.assign[c.key]:'待公布'}</div></span></div>`;
         }).join('')}
