@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大會報到指揮所 · 座位分組系統</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root{
+    --ink:#12172B;
+    --ink-2:#1C2340;
+    --ink-3:#252c4a;
+    --paper:#FAF8F4;
+    --paper-2:#F0ECE3;
+    --amber:#F2A93B;
+    --amber-dark:#C97F17;
+    --slate:#5B6478;
+    --teal:#1F7A6C;
+    --coral:#D64550;
+    --line:#E4DFD3;
+    --line-dark:#333c62;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Noto Sans TC',sans-serif;background:var(--paper);color:var(--ink);}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  a{color:inherit;}
+  button{font-family:inherit;cursor:pointer;}
+  input,select{font-family:inherit;}
+
+  /* ---------- Role gate ---------- */
+  #gate{min-height:100vh;display:flex;align-items:center;justify-content:center;background:
+    radial-gradient(circle at 20% 20%, #1c2447 0%, var(--ink) 60%);}
+  .gate-card{background:var(--ink-2);border:1px solid var(--line-dark);border-radius:16px;padding:40px 36px;max-width:440px;width:92%;color:#EDEBE3;text-align:center;box-shadow:0 30px 60px rgba(0,0,0,.35);}
+  .gate-eyebrow{font-family:'JetBrains Mono',monospace;letter-spacing:.18em;font-size:12px;color:var(--amber);text-transform:uppercase;margin-bottom:10px;}
+  .gate-title{font-size:26px;font-weight:900;margin:0 0 6px;}
+  .gate-sub{color:#9AA1C0;font-size:14px;margin-bottom:28px;}
+  .gate-btn{display:block;width:100%;padding:16px;margin-bottom:12px;border-radius:10px;border:1px solid var(--line-dark);background:var(--ink-3);color:#EDEBE3;font-size:15px;font-weight:700;transition:.15s;text-align:left;}
+  .gate-btn:hover{border-color:var(--amber);background:#2a3260;}
+  .gate-btn small{display:block;font-weight:400;color:#9AA1C0;font-size:12.5px;margin-top:3px;}
+  .gate-pass{display:none;margin-top:14px;}
+  .gate-pass input{width:100%;padding:12px;border-radius:8px;border:1px solid var(--line-dark);background:var(--ink);color:#fff;font-size:16px;text-align:center;letter-spacing:.3em;}
+  .gate-pass button{margin-top:10px;width:100%;padding:12px;border-radius:8px;border:none;background:var(--amber);color:var(--ink);font-weight:700;}
+  .gate-err{color:var(--coral);font-size:13px;margin-top:8px;display:none;}
+
+  /* ---------- App shell ---------- */
+  #app{display:none;min-height:100vh;}
+  header.topbar{background:var(--ink);color:#EDEBE3;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:40;box-shadow:0 2px 12px rgba(0,0,0,.15);}
+  .brand{display:flex;flex-direction:column;line-height:1.1;}
+  .brand .eyebrow{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.2em;color:var(--amber);text-transform:uppercase;}
+  .brand .name{font-weight:900;font-size:17px;}
+  .topbar-right{display:flex;align-items:center;gap:14px;font-size:13px;color:#9AA1C0;}
+  .exit-btn{background:transparent;border:1px solid var(--line-dark);color:#EDEBE3;padding:7px 14px;border-radius:8px;font-size:13px;}
+  .exit-btn:hover{border-color:var(--amber);}
+
+  nav.tabs{display:flex;gap:4px;background:var(--ink-2);padding:0 20px;overflow-x:auto;position:sticky;top:56px;z-index:39;}
+  nav.tabs button{background:transparent;border:none;color:#9AA1C0;padding:14px 16px;font-size:14px;font-weight:500;border-bottom:3px solid transparent;white-space:nowrap;}
+  nav.tabs button.active{color:#fff;border-bottom-color:var(--amber);font-weight:700;}
+
+  main{max-width:1180px;margin:0 auto;padding:28px 20px 80px;}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px;margin-bottom:22px;}
+  .panel h2{margin:0 0 4px;font-size:19px;font-weight:900;}
+  .panel .desc{color:var(--slate);font-size:13.5px;margin-bottom:18px;}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
+  .btn{padding:10px 18px;border-radius:9px;border:1px solid var(--line);background:var(--paper-2);color:var(--ink);font-size:14px;font-weight:700;}
+  .btn:hover{border-color:var(--slate);}
+  .btn-primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .btn-primary:hover{background:var(--ink-2);}
+  .btn-amber{background:var(--amber);border-color:var(--amber-dark);color:var(--ink);}
+  .btn-amber:hover{background:var(--amber-dark);color:#fff;}
+  .btn-ghost{background:transparent;}
+  .btn-danger{color:var(--coral);border-color:#f0c9cc;background:#fff5f5;}
+  .btn-sm{padding:6px 10px;font-size:12.5px;border-radius:7px;}
+  input[type=text],input[type=number],input[type=tel],select{padding:9px 11px;border-radius:8px;border:1px solid var(--line);font-size:14px;background:#fff;}
+  label.field{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--slate);font-weight:700;}
+
+  /* dashboard stat cards */
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;}
+  .stat-card{background:var(--ink);color:#fff;border-radius:12px;padding:18px;position:relative;overflow:hidden;}
+  .stat-card .label{font-size:11.5px;color:#9AA1C0;text-transform:uppercase;letter-spacing:.08em;font-family:'JetBrains Mono',monospace;}
+  .stat-card .num{font-family:'JetBrains Mono',monospace;font-size:34px;font-weight:700;color:var(--amber);margin-top:4px;}
+  .stat-card .sub{font-size:12px;color:#9AA1C0;margin-top:2px;}
+
+  /* table */
+  table.data{width:100%;border-collapse:collapse;font-size:13.5px;}
+  table.data th{text-align:left;color:var(--slate);font-size:12px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:2px solid var(--line);}
+  table.data td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  table.data tr:hover td{background:var(--paper-2);}
+  .chip{display:inline-block;padding:2px 9px;border-radius:100px;font-size:12px;font-weight:700;background:var(--paper-2);color:var(--ink);}
+  .chip.empty{color:var(--slate);background:transparent;border:1px dashed var(--line);}
+  .pager{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px;font-size:13px;color:var(--slate);}
+
+  /* assignment tiles */
+  .cat-tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+  .cat-tab{padding:9px 16px;border-radius:100px;border:1px solid var(--line);background:#fff;font-size:13.5px;font-weight:700;color:var(--slate);}
+  .cat-tab.active{background:var(--ink);color:#fff;border-color:var(--ink);}
+  .tile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;}
+  .tile{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff;}
+  .tile-head{background:var(--ink);color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;}
+  .tile-head .num{font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--amber);}
+  .tile-head .cnt{font-size:11.5px;color:#9AA1C0;}
+  .tile-body{padding:6px 10px;overflow:visible;}
+  .tile-row{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;}
+  .tile-person{display:flex;align-items:center;padding:5px 4px;border-bottom:1px dashed var(--line);font-size:12.5px;gap:2px;}
+  .tile-person:last-child{border-bottom:none;}
+  .tile-person .tp-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+  .tile-person .tp-org{color:var(--slate);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+  .tile-person .tp-assign{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;margin-left:auto;white-space:nowrap;}
+  .tile-person select{font-size:11px;padding:2px 4px;border-radius:5px;margin-left:auto;}
+  .pending-badge{display:inline-block;background:var(--coral);color:#fff;font-size:10px;padding:1px 7px;border-radius:100px;font-weight:700;}
+  @keyframes flip{0%{transform:scaleY(1);}50%{transform:scaleY(0.05);}100%{transform:scaleY(1);}}
+  .flip{animation:flip .35s ease;}
+
+  /* lookup */
+  .lookup-wrap{max-width:480px;margin:40px auto;}
+  .lookup-card{background:var(--ink);color:#fff;border-radius:16px;padding:30px;text-align:center;}
+  .result-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px;}
+  .result-tile{background:var(--ink-2);border:1px solid var(--line-dark);border-radius:10px;padding:16px 10px;}
+  .result-tile .k{font-size:11.5px;color:#9AA1C0;font-family:'JetBrains Mono',monospace;letter-spacing:.08em;}
+  .result-tile .v{font-family:'JetBrains Mono',monospace;font-size:30px;font-weight:700;color:var(--amber);margin-top:4px;}
+
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 22px;border-radius:10px;font-size:14px;z-index:200;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;transition:.25s;pointer-events:none;}
+  .toast.show{opacity:1;}
+  .toast.err{background:var(--coral);}
+  .toast.ok{background:var(--teal);}
+
+  .empty-state{text-align:center;padding:50px 20px;color:var(--slate);}
+  .empty-state .big{font-size:40px;margin-bottom:8px;}
+
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:8px;}
+  @media(max-width:640px){
+    .result-grid{grid-template-columns:1fr 1fr;}
+    main{padding:18px 12px 60px;}
+    .panel{padding:16px;}
+  }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gate-card">
+    <div class="gate-eyebrow">Event Ops · 大會座位系統</div>
+    <h1 class="gate-title">報到指揮所</h1>
+    <div class="gate-sub">請選擇你的身分進入系統</div>
+    <button class="gate-btn" id="btnStaff">工作人員 / 主辦方後台<small>匯入名單、產生座位分組、匯出名單</small></button>
+    <div class="gate-pass" id="passBox">
+      <input type="tel" id="passInput" maxlength="8" placeholder="輸入通關密碼" inputmode="numeric">
+      <button id="passSubmit">進入後台</button>
+      <div class="gate-err" id="passErr">密碼錯誤,請再試一次</div>
+    </div>
+    <button class="gate-btn" id="btnPublic">與會者 / 我要查我的座位<small>輸入姓名 + 電話末4碼即可查詢</small></button>
+  </div>
+</div>
+
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="eyebrow">Event Ops</div>
+      <div class="name" id="brandName">大會報到指揮所</div>
+    </div>
+    <div class="topbar-right">
+      <span id="roleLabel"></span>
+      <button class="exit-btn" id="btnExit">切換身分</button>
+    </div>
+  </header>
+  <nav class="tabs" id="tabs"></nav>
+  <main id="main"></main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= STATE ================= */
+const CATS = [
+  {key:'course', label:'課程座位', unit:'區', sizeKey:'courseSize', isCourse:true},
+  {key:'meal',   label:'吃飯座位', unit:'桌', sizeKey:'mealSize'},
+  {key:'room',   label:'房間',     unit:'房', sizeKey:'roomCapacity'},
+  {key:'activity',label:'分組活動',unit:'組', sizeKey:'activitySize'},
+];
+const STORAGE_KEY = 'seatplan_attendees_v3';
+const SETTINGS_KEY = 'seatplan_settings_v3';
+
+let state = {
+  role: null, // 'admin' | 'public'
+  attendees: [],
+  settings: {
+    eventName: '大會報到指揮所',
+    passcode: '0000',
+    orgs: ['組織A', '組織B', '組織C'],
+    courseColors: ['紅', '黃', '藍', '綠'],
+    courseRowSize: 30,
+    seatDirection: 'left-to-right',
+    seatNumbering: 'same',
+    mealSize: 10,
+    roomCapacity: 4,
+    activitySize: 10,
+    roomSameGender: true
+  },
+  tab: 'dashboard',
+  assignCat: 'course',
+  assignFilterOrg: '',
+  listSearch: '',
+  listPage: 1,
+  loaded: false
+};
+
+/* ================= STORAGE HELPERS ================= */
+async function loadAll(){
+  try{
+    const r = await window.storage.get(STORAGE_KEY, true);
+    state.attendees = r ? JSON.parse(r.value) : [];
+  }catch(e){ state.attendees = []; }
+  try{
+    const r = await window.storage.get(SETTINGS_KEY, true);
+    if(r) state.settings = Object.assign({}, state.settings, JSON.parse(r.value));
+  }catch(e){ /* use defaults */ }
+  state.loaded = true;
+}
+async function saveAttendees(){
+  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state.attendees), true); }
+  catch(e){ toast('儲存失敗,請檢查網路後重試', 'err'); }
+}
+async function saveSettings(){
+  try{ await window.storage.set(SETTINGS_KEY, JSON.stringify(state.settings), true); }
+  catch(e){ toast('設定儲存失敗', 'err'); }
+}
+
+/* ================= UTIL ================= */
+function uid(){ return 'a' + Math.random().toString(36).slice(2,10); }
+function toast(msg, type){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (type ? ' '+type : '');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=>{ t.className='toast'; }, 2600);
+}
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function downloadCSV(filename, rows){
+  const csv = rows.map(r=>r.map(v=>{
+    v = v==null? '' : String(v);
+    if(/[",\n]/.test(v)) v = '"'+v.replace(/"/g,'""')+'"';
+    return v;
+  }).join(',')).join('\r\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ================= ASSIGNMENT ALGORITHM ================= */
+function chunkBySize(arr, size){
+  const groups = [];
+  for(let i=0; i<arr.length; i+=size) groups.push(arr.slice(i, i+size));
+  return groups;
+}
+
+function generateAssignment(catKey){
+  const s = state.settings;
+  const people = state.attendees;
+  if(people.length===0){ toast('尚未有名單資料', 'err'); return; }
+
+  if(catKey==='course'){ generateCourseAssignment(); return; }
+
+  // Clear existing assignments for this category
+  people.forEach(p=>{ p.assign[catKey] = null; });
+
+  // ---- Per-org block allocation ----
+  const orgMap = {};
+  people.forEach(p=>{ const k=p.org||'未指定'; (orgMap[k]=orgMap[k]||[]).push(p); });
+
+  const allGroups = [];
+  let globalCounter = 1;
+
+  if(catKey==='room'){
+    // Staff (工作人員) pre-assignment: assign staff first, then rest auto
+    const staffPeople = people.filter(p=>p.staff);
+    const normalPeople = people.filter(p=>!p.staff);
+    if(staffPeople.length>0){
+      const staffGroups = chunkBySize(staffPeople, s.roomCapacity);
+      staffGroups.forEach((grp, i)=>{
+        grp.forEach(p=>{ p.assign.room = globalCounter; });
+        allGroups.push(grp);
+        globalCounter++;
+      });
+      toast(`👥 ${staffPeople.length} 位工作人員已優先分配房間`, 'ok');
+    }
+    // Now normal people by org
+    const orgMap2 = {};
+    normalPeople.forEach(p=>{ const k=p.org||'未指定'; (orgMap2[k]=orgMap2[k]||[]).push(p); });
+    Object.keys(orgMap2).forEach(org=>{
+      const sub = orgMap2[org];
+      if(s.roomSameGender){
+        ['M','F','其他'].forEach(g=>{
+          const gPeople = sub.filter(p=>(p.gender||'其他')===g);
+          if(gPeople.length===0) return;
+          const groups = chunkBySize(gPeople, s.roomCapacity);
+          groups.forEach((grp, i)=>{
+            if(grp.length===s.roomCapacity || i<groups.length-1){
+              grp.forEach(p=>{ p.assign.room = globalCounter; });
+              allGroups.push(grp);
+              globalCounter++;
+            }
+          });
+        });
+      } else {
+        const groups = chunkBySize(sub, s.roomCapacity);
+        groups.forEach((grp, i)=>{
+          if(grp.length===s.roomCapacity || i<groups.length-1){
+            grp.forEach(p=>{ p.assign.room = globalCounter; });
+            allGroups.push(grp);
+            globalCounter++;
+          }
+        });
+      }
+    });
+  } else if(catKey==='meal'){
+    // Separate veg across orgs, non-veg within org
+    const vegPeople = [], nonVegMap = {};
+    Object.keys(orgMap).forEach(org=>{
+      nonVegMap[org] = [];
+      orgMap[org].forEach(p=>{
+        if(p.diet==='素') vegPeople.push(p);
+        else nonVegMap[org].push(p);
+      });
+    });
+    // Non-veg: per org
+    Object.keys(nonVegMap).forEach(org=>{
+      const groups = chunkBySize(nonVegMap[org], s.mealSize);
+      groups.forEach((grp, i)=>{
+        if(grp.length===s.mealSize || i<groups.length-1){
+          grp.forEach(p=>{ p.assign.meal = globalCounter; });
+          allGroups.push(grp);
+          globalCounter++;
+        }
+      });
+    });
+    // Veg: cross-org allowed
+    if(vegPeople.length>0){
+      const groups = chunkBySize(vegPeople, s.mealSize);
+      groups.forEach(grp=>{
+        grp.forEach(p=>{ p.assign.meal = globalCounter; });
+        allGroups.push(grp);
+        globalCounter++;
+      });
+    }
+  } else if(catKey==='activity'){
+    // Activity: group by sponsor within org
+    Object.keys(orgMap).forEach(org=>{
+      const sub = orgMap[org];
+      const sponsorMap = {};
+      sub.forEach(p=>{
+        const sp = p.sponsor || '';
+        if(!sp) return; // no sponsor → goes to pending
+        (sponsorMap[sp] = sponsorMap[sp] || []).push(p);
+      });
+      Object.keys(sponsorMap).forEach(sp=>{
+        const spGroup = sponsorMap[sp];
+        if(spGroup.length <= s.activitySize){
+          spGroup.forEach(p=>{ p.assign.activity = globalCounter; });
+          allGroups.push(spGroup);
+          globalCounter++;
+        } else {
+          const groups = chunkBySize(spGroup, s.activitySize);
+          groups.forEach((grp, i)=>{
+            if(i<groups.length-1){
+              grp.forEach(p=>{ p.assign.activity = globalCounter; });
+              allGroups.push(grp);
+              globalCounter++;
+            }
+          });
+        }
+      });
+    });
+  }
+
+  // ---- Handle remaining ----
+  const unassigned = people.filter(p=>!p.assign[catKey]);
+  if(unassigned.length>0){
+    if(catKey==='activity'){
+      // Activity: remaining goes to pending (not auto-assign across orgs)
+      toast(`⚠️ ${unassigned.length} 人無上線夥伴或剩員，已保留在待分配區`, '');
+    } else {
+      const groups = chunkBySize(unassigned, catKey==='room'?s.roomCapacity:s.mealSize);
+      groups.forEach(grp=>{
+        grp.forEach(p=>{ p.assign[catKey] = globalCounter; });
+        allGroups.push(grp);
+        globalCounter++;
+      });
+      toast(`⚠️ ${unassigned.length} 人跨組織合併，請確認`, '');
+    }
+  }
+
+  saveAttendees();
+  toast('已完成「'+CATS.find(c=>c.key===catKey).label+'」自動分配', 'ok');
+  render();
+}
+
+function generateCourseAssignment(){
+  const s = state.settings;
+  const people = state.attendees;
+  if(people.length===0){ toast('尚無名單', 'err'); return; }
+  people.forEach(p=>{ p.assign.courseSection=null; p.assign.courseSeat=null; });
+
+  const sectionCount = s.courseColors.length;
+  // assign sections round-robin
+  people.forEach((p,i)=>{
+    p.assign.courseSection = i % sectionCount;
+  });
+
+  // assign seats per section
+  for(let sec=0; sec<sectionCount; sec++){
+    const secPeople = people.filter(p=>p.assign.courseSection===sec);
+    const rowSize = s.courseRowSize;
+    let seatNum = 1;
+    const groups = chunkBySize(secPeople, rowSize);
+    groups.forEach((row, ri)=>{
+      if(s.seatNumbering==='snake' && ri%2===1){
+        // snake: reverse order for this row
+        const rev = [...row].reverse();
+        rev.forEach(p=>{ p.assign.courseSeat = seatNum++; });
+      } else {
+        row.forEach(p=>{ p.assign.courseSeat = seatNum++; });
+      }
+    });
+  }
+
+  saveAttendees();
+  toast('已完成課程座位分配', 'ok');
+  render();
+}
+
+/* ================= RENDER ================= */
+function render(){
+  renderTabs();
+  if(state.tab==='dashboard') renderDashboard();
+  else if(state.tab==='list') renderList();
+  else if(state.tab==='assign') renderAssign();
+  else if(state.tab==='settings') renderSettings();
+  else if(state.tab==='lookup') renderLookup();
+  document.getElementById('brandName').textContent = state.settings.eventName;
+  document.getElementById('roleLabel').textContent = state.role==='admin' ? '工作人員模式' : '與會者查詢模式';
+}
+
+function renderTabs(){
+  const nav = document.getElementById('tabs');
+  let tabs = state.role==='admin'
+    ? [['dashboard','儀表板'],['list','名單管理'],['assign','座位分配'],['settings','設定']]
+    : [['lookup','查詢我的座位']];
+  nav.innerHTML = tabs.map(([k,l])=>`<button data-tab="${k}" class="${state.tab===k?'active':''}">${l}</button>`).join('');
+  nav.querySelectorAll('button').forEach(b=>b.onclick=()=>{ state.tab=b.dataset.tab; render(); });
+}
+
+function countAssigned(catKey){
+  if(catKey==='course') return state.attendees.filter(p=>p.assign.courseSection!=null).length;
+  return state.attendees.filter(p=>p.assign[catKey]).length;
+}
+
+function orgStats(org){
+  const ppl = state.attendees.filter(p=>p.org===org);
+  return {
+    total: ppl.length,
+    veg: ppl.filter(p=>p.diet==='素').length,
+    roomAssigned: ppl.filter(p=>p.assign.room).length,
+    mealAssigned: ppl.filter(p=>p.assign.meal).length,
+    activityAssigned: ppl.filter(p=>p.assign.activity).length,
+  };
+}
+
+function renderDashboard(){
+  const total = state.attendees.length;
+  const main = document.getElementById('main');
+  const orgs = state.settings.orgs;
+  main.innerHTML = `
+    <div class="panel">
+      <h2>總覽</h2>
+      <div class="desc">目前名單共 ${total} 人，${orgs.length} 個組織</div>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="label">Total</div><div class="num">${total}</div><div class="sub">總報名人數</div></div>
+        ${CATS.map(c=>`<div class="stat-card"><div class="label">${c.label}</div><div class="num">${countAssigned(c.key)}/${total}</div><div class="sub">已分配人數</div></div>`).join('')}
+      </div>
+      <div style="margin-top:18px;">
+        <h3 style="font-size:14px;color:var(--slate);margin:0 0 8px;">各組織統計</h3>
+        <div class="stat-grid">
+          ${orgs.map(o=>{
+            const st = orgStats(o);
+            return `<div class="stat-card" style="background:var(--ink-2);"><div class="label">${esc(o)}</div><div class="num" style="font-size:24px;">${st.total}</div><div class="sub">${st.veg} 位素食</div></div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>快速開始</h2>
+      <div class="desc">依序完成以下三步驟</div>
+      <div class="row">
+        <button class="btn btn-primary" data-go="list">① 匯入 / 管理名單</button>
+        <button class="btn btn-primary" data-go="assign">② 產生座位分配</button>
+        <button class="btn" data-go="settings">③ 調整分組設定</button>
+      </div>
+    </div>
+  `;
+  main.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ state.tab=b.dataset.go; render(); });
+}
+
+function matchAttendee(row, orgHint){
+  const norm = {};
+  Object.keys(row).forEach(k=>{ norm[k.trim()] = row[k]; });
+  const find = (arr)=>{
+    for(const k of Object.keys(norm)){
+      if(arr.some(w=>k.includes(w))) return (norm[k]||'').toString().trim();
+    }
+    return '';
+  };
+  const rawPhone = find(['手機','電話','phone','mobile']);
+  const rawStaff = find(['工作人員','職務','角色','staff','role']);
+  return {
+    name: find(['姓名','name']),
+    org: orgHint || find(['組織','單位','公司','部門','org','dept']),
+    gender: normalizeGender(find(['性別','gender'])),
+    sponsor: find(['上線夥伴','上線','推薦人','sponsor','upline']),
+    phone: rawPhone,
+    phone4: rawPhone.slice(-4),
+    diet: normalizeDiet(find(['葷素','飲食','diet','food'])),
+    staff: rawStaff
+  };
+}
+function normalizeGender(v){
+  v = (v||'').trim();
+  if(['男','M','m','Male','male'].includes(v)) return 'M';
+  if(['女','F','f','Female','female'].includes(v)) return 'F';
+  return v ? '其他' : '';
+}
+function normalizeDiet(v){
+  v = (v||'').trim();
+  if(['素','素食','vegetarian','vegan','V'].includes(v)) return '素';
+  return '葷';
+}
+
+function renderList(){
+  const main = document.getElementById('main');
+  const q = state.listSearch.trim().toLowerCase();
+  let list = state.attendees.filter(p=> !q || (p.name+(p.org||'')).toLowerCase().includes(q));
+  const pageSize = 50;
+  const totalPages = Math.max(1, Math.ceil(list.length/pageSize));
+  state.listPage = Math.min(state.listPage, totalPages);
+  const pageList = list.slice((state.listPage-1)*pageSize, state.listPage*pageSize);
+
+  main.innerHTML = `
+    <div class="panel">
+      <h2>名單管理</h2>
+      <div class="desc">支援 CSV 匯入。欄位:姓名 / 性別 / 手機 / 上線夥伴 / 組織 / 葷素 / 工作人員</div>
+      <div class="row" style="margin-bottom:16px;">
+        <input type="file" id="csvFile" accept=".csv" style="display:none;">
+        <select id="importOrgHint" style="font-size:13px;">
+          <option value="">自動偵測(從CSV組織欄)</option>
+          ${state.settings.orgs.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" id="btnImport">📥 匯入 CSV</button>
+        <button class="btn" id="btnTemplate">下載範本 CSV</button>
+        <button class="btn btn-amber" id="btnAddOne">＋ 新增一位</button>
+        <button class="btn" id="btnExportAll">匯出完整名單 CSV</button>
+        <input type="text" id="searchBox" placeholder="搜尋姓名或組織…" value="${esc(state.listSearch)}" style="margin-left:auto;min-width:200px;">
+      </div>
+      ${state.attendees.length===0 ? `
+        <div class="empty-state"><div class="big">📋</div>尚未有任何名單,請先匯入 CSV</div>
+      ` : `
+      <div style="overflow-x:auto;">
+      <table class="data">
+        <thead><tr><th>姓名</th><th>組織</th><th>性別</th><th>手機</th><th>上線夥伴</th><th>葷素</th><th>工作人員</th>
+        ${CATS.map(c=>`<th>${c.label}</th>`).join('')}<th></th></tr></thead>
+        <tbody>
+          ${pageList.map(p=>`
+            <tr>
+              <td><b>${esc(p.name)}</b></td>
+              <td>${esc(p.org)||'—'}</td>
+              <td>${genderLabel(p.gender)}</td>
+              <td class="mono">${esc(p.phone)||'—'}</td>
+              <td>${esc(p.sponsor)||'—'}</td>
+              <td>${p.diet==='素'?'🥬素':'🥩葷'}</td>
+              <td>${p.staff?`<span class="chip" style="background:var(--teal);color:#fff;">${esc(p.staff)}</span>`:'—'}</td>
+              ${CATS.map(c=>{
+                if(c.isCourse) return `<td>${p.assign.courseSection!=null ? `<span class="chip" style="background:${getSectionColor(p.assign.courseSection)};color:#fff;">${getSectionLabel(p.assign.courseSection)}-${p.assign.courseSeat}</span>` : `<span class="chip empty">未分配</span>`}</td>`;
+                return `<td>${p.assign[c.key]?`<span class="chip">${c.unit}${p.assign[c.key]}</span>`:`<span class="chip empty">未分配</span>`}</td>`;
+              }).join('')}
+              <td><button class="btn btn-sm btn-danger" data-del="${p.id}">刪除</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      </div>
+      <div class="pager">
+        <button class="btn btn-sm" id="prevPage" ${state.listPage<=1?'disabled':''}>← 上一頁</button>
+        第 ${state.listPage} / ${totalPages} 頁 (共 ${list.length} 筆)
+        <button class="btn btn-sm" id="nextPage" ${state.listPage>=totalPages?'disabled':''}>下一頁 →</button>
+      </div>
+      `}
+    </div>
+  `;
+
+  document.getElementById('searchBox').oninput = (e)=>{ state.listSearch = e.target.value; state.listPage=1; render(); };
+  document.getElementById('btnTemplate').onclick = ()=> downloadCSV('名單範本.csv', [['姓名','性別','手機','上線夥伴','組織','葷素','工作人員'],['王小明','男','0912345678','陳老師','組織A','葷',''],['林小華','女','0987654321','陳老師','組織B','素','隊輔']]);
+  document.getElementById('btnImport').onclick = ()=> document.getElementById('csvFile').click();
+  document.getElementById('csvFile').onchange = (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const orgHint = document.getElementById('importOrgHint')?.value || '';
+    Papa.parse(file, { header:true, skipEmptyLines:true, encoding:'UTF-8',
+      complete: (res)=>{
+        let added=0;
+        res.data.forEach(row=>{
+          const m = matchAttendee(row, orgHint);
+          if(!m.name) return;
+          state.attendees.push({ id: uid(), name:m.name, org:m.org, gender:m.gender, sponsor:m.sponsor, phone:m.phone, phone4:m.phone4, diet:m.diet, staff:m.staff||'', assign:{courseSection:null,courseSeat:null,meal:null,room:null,activity:null,activityRoom:null} });
+          added++;
+        });
+        saveAttendees();
+        toast(`已匯入 ${added} 筆資料`, 'ok');
+        render();
+      }});
+  };
+  document.getElementById('btnAddOne').onclick = ()=> openAttendeeForm();
+  document.getElementById('btnExportAll').onclick = ()=>{
+    const rows = [['姓名','組織','性別','手機','上線夥伴','葷素','工作人員', ...CATS.map(c=>c.label)]];
+    state.attendees.forEach(p=> rows.push([p.name,p.org,genderLabel(p.gender),p.phone,p.sponsor,p.diet,p.staff||'', ...CATS.map(c=>{
+      if(c.isCourse) return p.assign.courseSection!=null ? getSectionLabel(p.assign.courseSection)+'-'+p.assign.courseSeat : '';
+      return p.assign[c.key]||'';
+    })]));
+    downloadCSV('完整名單與分配.csv', rows);
+  };
+  main.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+    if(!confirm('確定刪除這位與會者嗎?')) return;
+    state.attendees = state.attendees.filter(p=>p.id!==b.dataset.del);
+    saveAttendees(); render();
+  });
+  const prev = document.getElementById('prevPage'), next = document.getElementById('nextPage');
+  if(prev) prev.onclick = ()=>{ state.listPage--; render(); };
+  if(next) next.onclick = ()=>{ state.listPage++; render(); };
+}
+function genderLabel(g){ return g==='M'?'男':g==='F'?'女':(g||'—'); }
+function getSectionColor(idx){
+  const palette = [
+    {names:['紅','red','赤'], hex:'#D64550'},
+    {names:['黃','黃色','yellow','金','金色'], hex:'#F2A93B'},
+    {names:['藍','藍色','blue'], hex:'#3B6FA0'},
+    {names:['綠','綠色','green'], hex:'#1F7A6C'},
+    {names:['紫','紫色','purple'], hex:'#7B4EA0'},
+    {names:['橙','橙色','橘','橘色','orange'], hex:'#E8843A'},
+    {names:['粉','粉紅','粉红色','pink'], hex:'#E87A90'},
+    {names:['棕','棕色','咖啡','brown'], hex:'#8B6A4A'},
+    {names:['灰','灰色','gray','grey'], hex:'#7B8494'},
+    {names:['白','白色','white'], hex:'#D0D0D0'},
+    {names:['黑','黑色','black'], hex:'#3A3A3A'},
+  ];
+  const name = state.settings.courseColors[idx] || '';
+  for(const p of palette){
+    if(p.names.some(n=>name.includes(n))) return p.hex;
+  }
+  return '#5B6478';
+}
+function getSectionLabel(idx){
+  return state.settings.courseColors[idx] || '區'+(idx+1);
+}
+
+function openAttendeeForm(){
+  const name = prompt('姓名:'); if(!name) return;
+  const org = prompt('所屬組織:') || '';
+  let gender = prompt('性別(男/女/其他,可留空):') || '';
+  gender = normalizeGender(gender);
+  const phone = prompt('手機號碼(可留空):') || '';
+  const sponsor = prompt('上線夥伴(可留空):') || '';
+  let diet = prompt('葷素(葷/素,預設葷):') || '葷';
+  diet = normalizeDiet(diet);
+  const staff = prompt('工作人員職務(可留空,非工作人員留空):') || '';
+  state.attendees.push({ id: uid(), name, org, gender, phone, phone4: phone.slice(-4), sponsor, diet, staff, assign:{courseSection:null,courseSeat:null,meal:null,room:null,activity:null,activityRoom:null} });
+  saveAttendees(); toast('新增成功', 'ok'); render();
+}
+
+function renderAssign(){
+  const main = document.getElementById('main');
+  const cat = CATS.find(c=>c.key===state.assignCat);
+  const s = state.settings;
+  const sizeVal = cat.isCourse ? s.courseRowSize : (cat.key==='room' ? s.roomCapacity : s[cat.sizeKey]);
+
+  // ----- build groups map -----
+  const groupsMap = {};
+  const pendingPeople = [];
+  state.attendees.forEach(p=>{
+    if(cat.isCourse){
+      if(p.assign.courseSection==null) return;
+      const key = 'sec'+p.assign.courseSection;
+      (groupsMap[key] = groupsMap[key] || []).push(p);
+      return;
+    }
+    const g = p.assign[cat.key];
+    if(g){ (groupsMap[g] = groupsMap[g] || []).push(p); }
+    else { pendingPeople.push(p); }
+  });
+
+  let groupNums = Object.keys(groupsMap).map(Number).filter(k=>k>0).sort((a,b)=>a-b);
+  if(filterOrg && !cat.isCourse){
+    // Only show groups that contain members from the selected org
+    groupNums = groupNums.filter(gi=>(groupsMap[gi]||[]).some(p=>p.org===filterOrg));
+  }
+  const maxGroup = groupNums.length ? Math.max(...groupNums) : 0;
+
+  // ----- org filter: only affects visual display -----
+  const filterOrg = state.assignFilterOrg;
+
+  // ----- meal/room specific counts -----
+  let mealStats='', roomStats='';
+  if(cat.key==='meal'){
+    const all = state.attendees;
+    const vegCount = all.filter(p=>p.diet==='素').length;
+    const staffCount = all.filter(p=>p.staff).length;
+    const nonVegAssigned = all.filter(p=>p.diet!=='素' && p.assign.meal).length;
+    const vegAssigned = all.filter(p=>p.diet==='素' && p.assign.meal).length;
+    const pendingCount = pendingPeople.length;
+    const staffAssigned = all.filter(p=>p.staff && p.assign.meal).length;
+    const staffTables = [...new Set(all.filter(p=>p.staff && p.assign.meal).map(p=>p.assign.meal))];
+    mealStats = `<span style="font-size:12.5px;color:var(--slate);margin-left:12px;">
+      🥩葷已分配 ${nonVegAssigned} / 🥬素${vegCount}人中${vegAssigned}已分配 / 👥工作人員 ${staffCount}人(${staffAssigned}已分配${staffTables.length?'，共'+staffTables.length+'桌':''}) / ⏳待分配 ${pendingCount}
+    </span>`;
+  }
+  if(cat.key==='room'){
+    const staffCount = state.attendees.filter(p=>p.staff).length;
+    const assignedCount = state.attendees.filter(p=>p.assign.room).length;
+    const staffAssigned = state.attendees.filter(p=>p.staff && p.assign.room).length;
+    roomStats = `<span style="font-size:12.5px;color:var(--slate);margin-left:12px;">
+      👥工作人員 ${staffCount}人(${staffAssigned}已分配) / 🛏️已分配 ${assignedCount}人 / ⏳待分配 ${pendingPeople.length}人
+    </span>`;
+  }
+
+  main.innerHTML = `
+    <div class="panel">
+      <h2>座位 / 分組分配</h2>
+      <div class="desc">${cat.isCourse ? '課程在大禮堂，分4色區塊，各區獨立編號。' : cat.key==='activity' ? '分組活動依上線夥伴分配，無上線夥伴或剩員保留在待分配區由工作人員手動分配。' : '依組織區塊分配，各組織人員不分散；剩員自動跨組織合併。重新產生會覆蓋手動調整。'}</div>
+      <div class="cat-tabs">
+        ${CATS.map(c=>`<button class="cat-tab ${c.key===state.assignCat?'active':''}" data-cat="${c.key}">${c.label}</button>`).join('')}
+      </div>
+      <div class="row" style="margin-bottom:8px;">
+        ${cat.isCourse ? `
+          <label class="field">每排人數
+            <input type="number" id="sizeInput" min="10" max="60" value="${s.courseRowSize}">
+          </label>
+          <label class="field">方向
+            <select id="seatDirection">
+              <option value="left-to-right" ${s.seatDirection==='left-to-right'?'selected':''}>左到右</option>
+              <option value="right-to-left" ${s.seatDirection==='right-to-left'?'selected':''}>右到左</option>
+            </select>
+          </label>
+          <label class="field">續排方式
+            <select id="seatNumbering">
+              <option value="same" ${s.seatNumbering==='same'?'selected':''}>同向續編</option>
+              <option value="snake" ${s.seatNumbering==='snake'?'selected':''}>S型往後</option>
+            </select>
+          </label>
+        ` : cat.key==='activity' ? `
+          <label class="field">每組上限人數
+            <input type="number" id="sizeInput" min="2" max="50" value="${sizeVal}">
+          </label>
+          <label class="field" style="flex-direction:row;align-items:center;gap:8px;">
+            <input type="checkbox" id="useRoomNum" checked> 顯示房號
+          </label>
+        ` : `
+          <label class="field">每${cat.unit}人數
+            <input type="number" id="sizeInput" min="2" max="50" value="${sizeVal}">
+          </label>
+          ${cat.key==='room' ? `
+          <label class="field" style="flex-direction:row;align-items:center;gap:8px;margin-top:18px;">
+            <input type="checkbox" id="sameGenderChk" ${s.roomSameGender?'checked':''}> 僅安排同性別同房
+          </label>
+          <label class="field" style="flex-direction:row;align-items:center;gap:8px;">
+            <input type="checkbox" id="staffFirstChk" checked> 工作人員優先分配
+          </label>` : ''}
+          <label class="field">篩選組織
+            <select id="orgFilter">
+              <option value="">全部組織</option>
+              ${s.orgs.map(o=>`<option value="${esc(o)}" ${o===filterOrg?'selected':''}>${esc(o)}</option>`).join('')}
+            </select>
+          </label>
+        `}
+        <button class="btn btn-amber" id="btnGenerate" style="align-self:flex-end;">🔄 產生 / 重新分配</button>
+        <button class="btn" id="btnExportCat" style="align-self:flex-end;">匯出此項 CSV</button>
+      </div>
+      ${cat.key==='meal'?mealStats:''}${cat.key==='room'?roomStats:''}
+    </div>
+    <div class="panel">
+      <h2>${cat.label}結果</h2>
+      <div class="desc">${maxGroup>0 ? (cat.isCourse ? `共 ${s.courseColors.length} 區塊` : `共 ${maxGroup} ${cat.unit}`) : '尚未產生分配'}</div>
+      ${maxGroup===0 ? `<div class="empty-state"><div class="big">🪑</div>按上方「產生 / 重新分配」開始</div>` : (cat.isCourse ? renderCourseSections() : `
+      <div class="tile-grid" id="tileGrid">
+        ${groupNums.map(gi=>{
+          const members = groupsMap[gi] || [];
+          const orgs = [...new Set(members.map(p=>p.org))];
+          const isStaff = members.some(p=>p.staff);
+          const showRoom = cat.key==='activity';
+          const roomNums = showRoom ? [...new Set(members.map(p=>p.assign.activityRoom||p.assign.room||'').filter(Boolean))].sort() : [];
+          return `<div class="tile" style="${isStaff?'border-color:var(--teal);':''}">
+            <div class="tile-head" style="${isStaff?'background:var(--teal);':''}">
+              <span class="num mono">${cat.unit}${gi}</span>
+              <span class="cnt">${members.length} 人${orgs.length>1?' / 混':''}${isStaff?' 👥工作人員':''}${roomNums.length?` 🏠房${roomNums.join(',')}`:''}</span>
+            </div>
+            <div class="tile-body">
+              <div class="tile-row">
+              ${members.map(p=>`<div class="tile-person">
+                <span class="tp-name">${esc(p.name)}</span>
+                <span class="tp-org">${esc(p.org)}${p.sponsor?'('+esc(p.sponsor)+')':''}</span>
+                ${!cat.isCourse ? `<select data-move="${p.id}" style="font-size:11px;padding:1px 3px;border-radius:5px;margin-left:4px;">
+                  <option value="">移動</option>
+                  ${groupNums.map(n=>`<option value="${n}" ${n===gi?'selected':''}>${cat.unit}${n}</option>`).join('')}
+                  <option value="pending">⏳待分配</option>
+                </select>` : ''}
+              </div>`).join('')}
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`)}
+      ${(cat.key==='activity') ? (()=>{
+        const showPending = filterOrg ? pendingPeople.filter(p=>p.org===filterOrg) : pendingPeople;
+        if(showPending.length===0) return '';
+        return `<div style="margin-top:16px;border:2px dashed var(--coral);border-radius:12px;padding:16px;background:#fff5f5;">
+        <h3 style="margin:0 0 8px;font-size:15px;color:var(--coral);">⏳ 待分配人員（${showPending.length} 人）</h3>
+        <div class="desc">以下人員無上線夥伴或為剩員，請手動分配：</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${showPending.map(p=>`<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid var(--line);border-radius:100px;padding:3px 10px;font-size:12.5px;">
+            ${esc(p.name)}
+            <span style="color:var(--slate);font-size:11px;">${esc(p.org)}</span>
+            <select data-pending-move="${p.id}" style="font-size:11px;padding:1px 3px;border-radius:5px;border:1px solid var(--line);">
+              <option value="">分配至...</option>
+              ${groupNums.map(n=>`<option value="${n}">${cat.unit}${n}</option>`).join('')}
+              <option value="new">＋ 新建組</option>
+            </select>
+          </span>`).join('')}
+        </div>
+      </div>`; })() : ''}
+      ${(cat.key==='activity' && maxGroup>0) ? `
+      <div style="margin-top:16px;border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff;">
+        <h3 style="margin:0 0 8px;font-size:15px;">🏠 分組活動房間設定</h3>
+        <div class="desc">為每個活動組指定房號（可留空）</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;">
+          ${groupNums.map(gi=>{
+            const members = groupsMap[gi]||[];
+            const currentRoom = members[0]?.assign.activityRoom || members[0]?.assign.room || '';
+            return `<div style="background:var(--paper-2);border-radius:8px;padding:10px;font-size:13px;">
+              <div style="font-weight:700;">${cat.unit}${gi}</div>
+              <div style="color:var(--slate);font-size:11px;">${members.length}人</div>
+              <input type="text" class="activityRoomInput" data-group="${gi}" value="${currentRoom}" placeholder="房號" style="width:100%;padding:5px 8px;font-size:12px;margin-top:4px;">
+            </div>`;
+          }).join('')}
+        </div>
+        <button class="btn btn-sm btn-primary" id="saveActivityRooms" style="margin-top:8px;">儲存房號</button>
+      </div>` : ''}
+    </div>
+  `;
+
+  // ----- event handlers -----
+  main.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{ state.assignCat=b.dataset.cat; render(); });
+  const orgFilterEl = document.getElementById('orgFilter');
+  if(orgFilterEl) orgFilterEl.onchange = ()=>{ state.assignFilterOrg = orgFilterEl.value; render(); };
+
+  document.getElementById('btnGenerate').onclick = ()=>{
+    if(maxGroup>0 && !cat.isCourse && !confirm('重新分配將覆蓋目前已手動調整的內容,確定繼續嗎?')) return;
+    if(cat.isCourse){
+      s.courseRowSize = parseInt(document.getElementById('sizeInput').value) || s.courseRowSize;
+      s.seatDirection = document.getElementById('seatDirection').value;
+      s.seatNumbering = document.getElementById('seatNumbering').value;
+    } else {
+      const sizeInput = parseInt(document.getElementById('sizeInput').value) || sizeVal;
+      if(cat.key==='room'){
+        s.roomCapacity = sizeInput;
+        s.roomSameGender = document.getElementById('sameGenderChk')?.checked || false;
+      } else if(cat.key==='activity'){
+        s.activitySize = sizeInput;
+      } else {
+        s[cat.sizeKey] = sizeInput;
+      }
+    }
+    saveSettings();
+    generateAssignment(cat.key);
+  };
+  document.getElementById('btnExportCat').onclick = ()=>{
+    const label = cat.label;
+    const rows = [['姓名','組織','性別','手機','上線夥伴','葷素','工作人員', label]];
+    state.attendees.forEach(p=> {
+      let v = '';
+      if(cat.isCourse) v = p.assign.courseSection!=null ? getSectionLabel(p.assign.courseSection)+'-'+p.assign.courseSeat : '';
+      else v = p.assign[cat.key] ? cat.unit+p.assign[cat.key] : '';
+      rows.push([p.name,p.org,genderLabel(p.gender),p.phone,p.sponsor,p.diet,p.staff||'', v]);
+    });
+    downloadCSV(label+'名單.csv', rows);
+  };
+
+  // move person to another group
+  main.querySelectorAll('[data-move]').forEach(sel=>sel.onchange=()=>{
+    const p = state.attendees.find(a=>a.id===sel.dataset.move);
+    if(sel.value==='pending'){
+      p.assign[cat.key] = null;
+    } else {
+      p.assign[cat.key] = parseInt(sel.value);
+    }
+    saveAttendees();
+    render();
+  });
+  // pending move
+  main.querySelectorAll('[data-pending-move]').forEach(sel=>sel.onchange=()=>{
+    const p = state.attendees.find(a=>a.id===sel.dataset.move);
+    if(sel.value==='new'){
+      const maxG = Math.max(0, ...state.attendees.map(a=>a.assign.activity||0));
+      p.assign.activity = maxG+1;
+    } else if(sel.value){
+      p.assign.activity = parseInt(sel.value);
+    }
+    saveAttendees();
+    render();
+  });
+  // activity room save
+  const saveRooms = document.getElementById('saveActivityRooms');
+  if(saveRooms) saveRooms.onclick = ()=>{
+    document.querySelectorAll('.activityRoomInput').forEach(inp=>{
+      const gi = parseInt(inp.dataset.group);
+      const roomNum = inp.value.trim();
+      (groupsMap[gi]||[]).forEach(p=>{ p.assign.activityRoom = roomNum || null; });
+    });
+    saveAttendees();
+    toast('房號已儲存', 'ok');
+    render();
+  };
+}
+
+function renderCourseSections(){
+  const s = state.settings;
+  const attendees = state.attendees;
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;">';
+  for(let sec=0; sec<s.courseColors.length; sec++){
+    const color = getSectionColor(sec);
+    const label = getSectionLabel(sec);
+    const members = attendees.filter(p=>p.assign.courseSection===sec);
+    const totalSeats = Math.max(...members.map(p=>p.assign.courseSeat||0), 0);
+    html += `<div style="border:3px solid ${color};border-radius:14px;overflow:hidden;background:#fff;">
+      <div style="background:${color};color:#fff;padding:14px;text-align:center;font-weight:900;font-size:22px;">${label}區</div>
+      <div style="padding:12px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--slate);">
+        共 ${members.length} 席 / 最大號碼 ${totalSeats}
+      </div>
+      <div style="padding:0 12px 12px;max-height:300px;overflow-y:auto;">
+        ${members.sort((a,b)=>a.assign.courseSeat-b.assign.courseSeat).map(p=>`
+          <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px;">
+            <span>${esc(p.name)} <span style="color:#aaa;font-size:11px;">${esc(p.org)}</span></span>
+            <span class="mono" style="font-weight:700;color:${color};">${label}-${p.assign.courseSeat}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderSettings(){
+  const main = document.getElementById('main');
+  const s = state.settings;
+  main.innerHTML = `
+    <div class="panel">
+      <h2>活動設定</h2>
+      <div class="row">
+        <label class="field" style="flex:1;min-width:220px;">活動名稱
+          <input type="text" id="setName" value="${esc(s.eventName)}">
+        </label>
+        <label class="field">後台通關密碼
+          <input type="text" id="setPass" value="${esc(s.passcode)}" maxlength="8">
+        </label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>組織管理</h2>
+      <div class="desc">參與活動的組織名稱（2~4個），人員分配以組織為單位區塊分配。</div>
+      <div id="orgList">
+        ${s.orgs.map((o,i)=>`
+          <div class="row" style="margin-bottom:8px;">
+            <input type="text" class="orgName" data-idx="${i}" value="${esc(o)}" style="flex:1;">
+            <button class="btn btn-sm btn-danger" data-delorg="${i}" ${s.orgs.length<=2?'disabled':''}>移除</button>
+          </div>
+        `).join('')}
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn btn-sm" id="btnAddOrg" ${s.orgs.length>=4?'disabled':''}>＋ 新增組織</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>課程座位設定</h2>
+      <div class="desc">大禮堂分區顏色與編號方式</div>
+      <div class="row">
+        <label class="field">區塊顏色（${s.courseColors.length}區）
+          <div id="colorList" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+            ${s.courseColors.map((c,i)=>`
+              <span style="display:flex;align-items:center;gap:4px;background:${getSectionColor(i)};color:#fff;padding:4px 10px;border-radius:100px;font-size:13px;font-weight:700;">
+                <input type="text" class="colorName" data-idx="${i}" value="${c}" style="width:40px;background:transparent;border:none;color:#fff;font-weight:700;text-align:center;padding:0;">
+                <button class="colorDel" data-idx="${i}" style="background:none;border:none;color:rgba(255,255,255,.6);cursor:pointer;font-size:14px;padding:0;line-height:1;" ${s.courseColors.length<=2?'disabled':''}>✕</button>
+              </span>
+            `).join('')}
+            <button class="btn btn-sm" id="btnAddColor" ${s.courseColors.length>=6?'disabled':''}>＋</button>
+          </div>
+        </label>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <label class="field">每排人數
+          <input type="number" id="setRowSize" min="10" max="60" value="${s.courseRowSize}">
+        </label>
+        <label class="field">方向
+          <select id="setSeatDirection">
+            <option value="left-to-right" ${s.seatDirection==='left-to-right'?'selected':''}>左到右</option>
+            <option value="right-to-left" ${s.seatDirection==='right-to-left'?'selected':''}>右到左</option>
+          </select>
+        </label>
+        <label class="field">續排方式
+          <select id="setSeatNumbering">
+            <option value="same" ${s.seatNumbering==='same'?'selected':''}>同向續編</option>
+            <option value="snake" ${s.seatNumbering==='snake'?'selected':''}>S型往後</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="row" style="margin-bottom:16px;">
+      <button class="btn btn-primary" id="btnSaveSettings">儲存設定</button>
+    </div>
+    <div class="panel">
+      <h2>危險區域</h2>
+      <div class="desc">此操作無法復原,請謹慎使用</div>
+      <button class="btn btn-danger" id="btnResetAll">清空所有名單與分配資料</button>
+    </div>
+  `;
+  document.getElementById('btnSaveSettings').onclick = ()=>{
+    s.eventName = document.getElementById('setName').value.trim() || s.eventName;
+    s.passcode = document.getElementById('setPass').value.trim() || s.passcode;
+    // read org names
+    document.querySelectorAll('.orgName').forEach(inp=>{
+      const idx = parseInt(inp.dataset.idx);
+      if(inp.value.trim()) s.orgs[idx] = inp.value.trim();
+    });
+    // read color names
+    document.querySelectorAll('.colorName').forEach(inp=>{
+      const idx = parseInt(inp.dataset.idx);
+      if(inp.value.trim()) s.courseColors[idx] = inp.value.trim();
+    });
+    s.courseRowSize = parseInt(document.getElementById('setRowSize').value) || s.courseRowSize;
+    s.seatDirection = document.getElementById('setSeatDirection').value;
+    s.seatNumbering = document.getElementById('setSeatNumbering').value;
+    saveSettings(); toast('設定已儲存', 'ok'); render();
+  };
+  // org add/remove
+  document.getElementById('btnAddOrg').onclick = ()=>{
+    s.orgs.push('新組織'+(s.orgs.length+1));
+    saveSettings(); render();
+  };
+  main.querySelectorAll('[data-delorg]').forEach(b=>b.onclick=()=>{
+    const idx = parseInt(b.dataset.delorg);
+    if(s.orgs.length<=2) return;
+    s.orgs.splice(idx,1);
+    saveSettings(); render();
+  });
+  // color add/remove
+  document.getElementById('btnAddColor').onclick = ()=>{
+    const colors = ['紫','橙','粉','棕'];
+    s.courseColors.push(colors[s.courseColors.length-4] || '新色');
+    saveSettings(); render();
+  };
+  main.querySelectorAll('.colorDel').forEach(b=>b.onclick=()=>{
+    const idx = parseInt(b.dataset.idx);
+    if(s.courseColors.length<=2) return;
+    s.courseColors.splice(idx,1);
+    saveSettings(); render();
+  });
+  document.getElementById('btnResetAll').onclick = ()=>{
+    if(!confirm('確定要清空所有名單與分配資料嗎?此動作無法復原!')) return;
+    state.attendees = [];
+    saveAttendees(); toast('已清空所有資料', 'ok'); render();
+  };
+}
+
+function renderLookup(){
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="lookup-wrap">
+      <div class="lookup-card">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.2em;color:var(--amber);text-transform:uppercase;">Find My Seat</div>
+        <h2 style="margin:6px 0 18px;">查詢我的座位</h2>
+        <input type="text" id="qName" placeholder="姓名" style="width:100%;padding:12px;border-radius:8px;border:none;margin-bottom:10px;font-size:15px;">
+        <input type="tel" id="qPhone" placeholder="電話末4碼" maxlength="4" style="width:100%;padding:12px;border-radius:8px;border:none;margin-bottom:14px;font-size:15px;">
+        <button class="btn btn-amber" id="btnLookup" style="width:100%;padding:13px;">查詢</button>
+        <div id="lookupResult"></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('btnLookup').onclick = ()=>{
+    const name = document.getElementById('qName').value.trim();
+    const phone = document.getElementById('qPhone').value.trim();
+    if(!name){ toast('請輸入姓名', 'err'); return; }
+    let matches = state.attendees.filter(p=>p.name===name);
+    if(matches.length>1 && phone) matches = matches.filter(p=>p.phone4===phone);
+    const box = document.getElementById('lookupResult');
+    if(matches.length===0){
+      box.innerHTML = `<div style="margin-top:18px;color:#e6b8bb;">查無資料,請確認姓名(與電話末4碼)是否正確,或洽現場工作人員</div>`;
+      return;
+    }
+    if(matches.length>1){
+      box.innerHTML = `<div style="margin-top:18px;color:#e6b8bb;">找到多筆同名資料,請輸入電話末4碼以精確查詢</div>`;
+      return;
+    }
+    const p = matches[0];
+    box.innerHTML = `
+      <div style="margin-top:6px;font-size:14px;color:#9AA1C0;">${esc(p.name)} ・ ${esc(p.org)||''} ・ ${esc(p.sponsor)||''}</div>
+      <div class="result-grid">
+        ${CATS.map(c=>{
+          if(c.isCourse){
+            const v = p.assign.courseSection!=null ? getSectionLabel(p.assign.courseSection)+'區-'+p.assign.courseSeat+'號' : '待公布';
+            return `<div class="result-tile"><div class="k">${c.label}</div><div class="v">${v}</div></div>`;
+          }
+          if(c.key==='activity'){
+            const gn = p.assign.activity ? '組'+p.assign.activity : '待公布';
+            const rn = p.assign.activityRoom || p.assign.room || '';
+            return `<div class="result-tile"><div class="k">${c.label}</div><div class="v">${gn}${rn?' / 房'+rn:''}</div></div>`;
+          }
+          return `<div class="result-tile"><div class="k">${c.label}</div><div class="v">${p.assign[c.key]?c.unit+p.assign[c.key]:'待公布'}</div></span></div>`;
+        }).join('')}
+      </div>
+    `;
+  };
+}
+
+/* ================= GATE / BOOT ================= */
+document.getElementById('btnStaff').onclick = ()=>{ document.getElementById('passBox').style.display='block'; };
+document.getElementById('passSubmit').onclick = ()=> tryEnterAdmin();
+document.getElementById('passInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryEnterAdmin(); });
+function tryEnterAdmin(){
+  const val = document.getElementById('passInput').value.trim();
+  if(val === state.settings.passcode){
+    enterApp('admin');
+  } else {
+    document.getElementById('passErr').style.display='block';
+  }
+}
+document.getElementById('btnPublic').onclick = ()=> enterApp('public');
+document.getElementById('btnExit').onclick = ()=>{
+  document.getElementById('app').style.display='none';
+  document.getElementById('gate').style.display='flex';
+  document.getElementById('passBox').style.display='none';
+  document.getElementById('passErr').style.display='none';
+  document.getElementById('passInput').value='';
+};
+function enterApp(role){
+  state.role = role;
+  state.tab = role==='admin' ? 'dashboard' : 'lookup';
+  document.getElementById('gate').style.display='none';
+  document.getElementById('app').style.display='block';
+  render();
+}
+
+(async function boot(){
+  await loadAll();
+})();
+</script>
+</body>
+</html>
